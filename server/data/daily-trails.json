@@ -1,0 +1,101 @@
+[
+  {
+    "id": "rrc-ice-box-canyon",
+    "name": "Ice Box Canyon Trail",
+    "difficulty": "Moderate",
+    "distance": "2.2 mi",
+    "elevation": "400 ft",
+    "description": "This cooler, shaded canyon in Red Rock offers a refreshing escape with seasonal waterfalls and unique plant life.",
+    "tags": [
+      "Canyon",
+      "Scenic",
+      "Waterfalls"
+    ],
+    "gemsRating": 4
+  },
+  {
+    "id": "vof-white-domes",
+    "name": "White Domes Loop Trail",
+    "difficulty": "Easy",
+    "distance": "1.1 mi",
+    "elevation": "150 ft",
+    "description": "Explore a fascinating slot canyon and the remnants of an old movie set amidst the vibrant sandstone formations of Valley of Fire.",
+    "tags": [
+      "Slot Canyon",
+      "Scenic",
+      "Geology"
+    ],
+    "gemsRating": 5
+  },
+  {
+    "id": "lm-owl-canyon",
+    "name": "Owl Canyon Trail",
+    "difficulty": "Easy",
+    "distance": "1.5 mi",
+    "elevation": "100 ft",
+    "description": "Wander through a narrow, winding canyon near Lake Mead, known for its interesting rock formations and potential for wildlife sightings.",
+    "tags": [
+      "Canyon",
+      "Wildlife",
+      "Short"
+    ],
+    "gemsRating": 3
+  },
+  {
+    "id": "sm-cathedral-rock",
+    "name": "Cathedral Rock Trail",
+    "difficulty": "Hard",
+    "distance": "2.7 mi",
+    "elevation": "1000 ft",
+    "description": "Ascend to breathtaking panoramic views of the Spring Mountains and the surrounding desert from the summit of Cathedral Rock.",
+    "tags": [
+      "Mountain",
+      "Views",
+      "Challenging"
+    ],
+    "gemsRating": 4
+  },
+  {
+    "id": "gb-little-finland",
+    "name": "Little Finland Trail",
+    "difficulty": "Moderate",
+    "distance": "1.0 mi",
+    "elevation": "50 ft",
+    "description": "Discover an otherworldly landscape of intricately sculpted red sandstone formations resembling fantastic creatures and shapes in Gold Butte.",
+    "tags": [
+      "Unique",
+      "Geology",
+      "Photography"
+    ],
+    "gemsRating": 5
+  },
+  {
+    "id": "bc-arizona-hot-spring",
+    "name": "Arizona Hot Spring Trail",
+    "difficulty": "Hard",
+    "distance": "6.0 mi",
+    "elevation": "1200 ft",
+    "description": "Embark on a strenuous journey through the rugged Black Canyon to reach natural hot springs along the Colorado River, offering spectacular views.",
+    "tags": [
+      "Canyon",
+      "River",
+      "Challenging",
+      "Hot Spring"
+    ],
+    "gemsRating": 4
+  },
+  {
+    "id": "sc-petroglyph-canyon",
+    "name": "Petroglyph Canyon Trail",
+    "difficulty": "Moderate",
+    "distance": "4.0 mi",
+    "elevation": "600 ft",
+    "description": "Hike through a historic canyon in Sloan Canyon National Conservation Area to witness hundreds of ancient Native American petroglyphs etched into the rock.",
+    "tags": [
+      "History",
+      "Petroglyphs",
+      "Canyon"
+    ],
+    "gemsRating": 4
+  }
+]

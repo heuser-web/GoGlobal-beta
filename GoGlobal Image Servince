@@ -1,0 +1,88 @@
+# Query: // GoGlobal Image Service — AOT (Ahead-Of-Time) persistence\n//\n// Instead of generating images in the browser (slow, exposes API key),\n// this calls the local Express server which:\n//   1. Checks if the image is already on disk → returns URL instantly\n//   2. Otherwise calls Gemini, saves the JPEG, returns the permanent URL\n//\n// The returned URL is a normal https://.../image.jpg — loads from CDN/disk\n// with no generation delay after the first request.\n\nconst CACHE_PREFIX = "gg_url_v2_";\n\nfunction cacheKey(prompt) {\n  let hash = 0;\n  for (let i = 0; i < prompt.length; i++) {\n    hash = ((hash << 5) - hash + prompt.charCodeAt(i)) | 0;\n  }\n  return CACHE_PREFIX + Math.abs(hash).toString(36);\n}\n\nexport async function generateImage(prompt) {\n  if (!prompt) return null;\n\n  const key = cacheKey(prompt);\n\n  // Session cache: store the URL string (tiny, not base64 blob)\n  try {\n    const cached = sessionStorage.getItem(key);\n    if (cached) return cached;\n  } catch (_) {}\n\n  try {\n    const res = await fetch(`/api/image?prompt=${encodeURIComponent(prompt)}`);\n    if (!res.ok) return null;\n\n    const { url } = await res.json();\n    if (!url) return null;\n\n    // Cache the URL in sessionStorage for instant repeat access\n    try {\n      sessionStorage.setItem(key, url);\n    } catch (_) {}\n\n    return url;\n  } catch (err) {\n    // Server not running or network error — silent fallback to gradient\n    return null;\n  }\n}\n
+# ContextLines: 1
+
+1 result - 1 file
+
+// GoGlobal Image Service — OpenAI version (frontend)
+
+const CACHE_PREFIX = "gg_img_v1_";
+
+function cacheKey(prompt) {
+  let hash = 0;
+  for (let i = 0; i < prompt.length; i++) {
+    hash = ((hash << 5) - hash + prompt.charCodeAt(i)) | 0;
+  }
+  return CACHE_PREFIX + Math.abs(hash).toString(36);
+}
+
+export async function generateImage(prompt) {
+  if (!prompt) return null;
+
+  const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
+  if (!apiKey) {
+    console.error("[ImageService] Missing OpenAI API key");
+    return null;
+  }
+
+  const key = cacheKey(prompt);
+
+  // ✅ Session cache
+  try {
+    const cached = sessionStorage.getItem(key);
+    if (cached) return cached;
+  } catch (_) {}
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+
+    const res = await fetch("https://api.openai.com/v1/images/generations", {
+      method: "POST",
+      signal: controller.signal,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: "gpt-image-1",
+        prompt: enhancePrompt(prompt),
+        size: "1024x1024",
+      }),
+    });
+
+    clearTimeout(timeout);
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      console.error("[ImageService] OpenAI error:", err);
+      return null;
+    }
+
+    const data = await res.json();
+    const url = data?.data?.[0]?.url;
+
+    if (!url) {
+      console.error("[ImageService] No image returned");
+      return null;
+    }
+
+    // cache result
+    try {
+      sessionStorage.setItem(key, url);
+    } catch (_) {}
+
+    return url;
+
+  } catch (err) {
+    if (err.name === "AbortError") {
+      console.error("[ImageService] Request timed out");
+    } else {
+      console.error("[ImageService] Network error:", err);
+    }
+    return null;
+  }
+}
+
+function enhancePrompt(base) {
+  return `${base}, ultra realistic, cinematic lighting, high detail, professional photography, 4k, natural colors`;
+}

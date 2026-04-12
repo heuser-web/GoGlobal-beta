@@ -1,0 +1,102 @@
+[
+  {
+    "id": "daily-evt-1",
+    "artist": "Neon Echoes",
+    "venue": "Park MGM",
+    "dates": [
+      "Feb 10, 2026"
+    ],
+    "category": "Music",
+    "price": "$150+"
+  },
+  {
+    "id": "daily-evt-2",
+    "artist": "Legends of Vegas Rock Fest",
+    "venue": "T-Mobile Arena",
+    "dates": [
+      "Sep 22, 2026"
+    ],
+    "category": "Music",
+    "price": "$95+"
+  },
+  {
+    "id": "daily-evt-3",
+    "artist": "The Desert Drifters",
+    "venue": "Brooklyn Bowl",
+    "dates": [
+      "Jun 05, 2026"
+    ],
+    "category": "Music",
+    "price": "$45+"
+  },
+  {
+    "id": "daily-evt-4",
+    "artist": "Digital Dreamscapes",
+    "venue": "Area 15",
+    "dates": [
+      "Oct 18, 2026"
+    ],
+    "category": "Art",
+    "price": "$40+"
+  },
+  {
+    "id": "daily-evt-5",
+    "artist": "Luminous Legacy: Neon Icons",
+    "venue": "Neon Museum",
+    "dates": [
+      "Apr 01, 2026"
+    ],
+    "category": "Art",
+    "price": "$30+"
+  },
+  {
+    "id": "daily-evt-6",
+    "artist": "Vegas Innovation Expo",
+    "venue": "Caesars Palace",
+    "dates": [
+      "Nov 12, 2026"
+    ],
+    "category": "Tech",
+    "price": "$299+"
+  },
+  {
+    "id": "daily-evt-7",
+    "artist": "Taste of Vegas Delights",
+    "venue": "Bellagio",
+    "dates": [
+      "May 20, 2026"
+    ],
+    "category": "Food",
+    "price": "$120+"
+  },
+  {
+    "id": "daily-evt-8",
+    "artist": "Mysteries Unleashed by The Enchanter",
+    "venue": "MGM Grand",
+    "dates": [
+      "Jul 07, 2026"
+    ],
+    "category": "Show",
+    "price": "$80+"
+  },
+  {
+    "id": "daily-evt-9",
+    "artist": "Aquatic Dreams",
+    "venue": "Wynn",
+    "dates": [
+      "Mar 15, 2026"
+    ],
+    "category": "Show",
+    "price": "$99+"
+  },
+  {
+    "id": "daily-evt-10",
+    "artist": "Las Vegas Raiders vs. [Opponent]",
+    "venue": "Allegiant Stadium",
+    "dates": [
+      "Dec 01, 2026"
+    ],
+    "category": "Sports",
+    "price": "$180+"
+  }
+]

@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find /Users/romanheuser/.claude/skills -type f -exec stat -f \"%Lz %N\" {} \\\\;)",
+      "Bash(sort -k2)",
+      "Bash(mkdir -p \"/Users/romanheuser/Downloads/GoGlobal Beta 1.0/.claude/skills\")",
+      "Bash(cp -r /Users/romanheuser/.claude/skills/. \"/Users/romanheuser/Downloads/GoGlobal Beta 1.0/.claude/skills/\")"
+    ]
+  }
+}

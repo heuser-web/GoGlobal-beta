@@ -1,0 +1,6 @@
+node_modules/
+dist/
+.env
+
+# AI-generated image cache (regenerated on first run)
+server/public/images/
