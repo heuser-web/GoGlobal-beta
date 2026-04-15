@@ -9,7 +9,7 @@ import {
   Sunset, TreePine, Building2, Tent, Waves, PartyPopper, Drama, Palette,
   ShoppingBag, Bike, Flame, Check, Copy, Mail, Phone, ChevronLeft, Menu,
   Plus, Minus, Info, AlertCircle, Loader2, RefreshCw, HeartHandshake,
-  Laugh, Link, ArrowUpRight, Play, Volume2, Eye, Bookmark, Grid3x3, Crown
+  Laugh, Link, ArrowUpRight, Play, Volume2, Eye, Bookmark, Grid3x3, Crown, BarChart2
 } from "lucide-react";
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -18,6 +18,7 @@ import {
 import { ThemeProvider, FavoritesProvider, MembershipProvider, useTheme, useFavorites, useMembership } from './context/AppContext'
 import { LocationMap } from './components/ui/expand-map'
 import MembershipPage from './pages/MembershipPage'
+import InfographicsPage from './pages/InfographicsPage'
 
 // ═══════════════════════════════════════════════════════════════════════════
 // GEMINI AI INTEGRATION — Romey Concierge
@@ -1177,7 +1178,8 @@ function NavBar({ page, setPage, onHome }) {
     { id: "platonic",   label: "Squad",      icon: <Laugh size={15}/>      },
     { id: "midway",     label: "Meetup",     icon: <Navigation size={15}/> },
     { id: "favorites",  label: `Saved${favorites.length ? ` (${favorites.length})` : ""}`, icon: <Bookmark size={15}/> },
-    { id: "membership", label: "Membership", icon: <Crown size={15}/>      },
+    { id: "membership",   label: "Membership",   icon: <Crown size={15}/>      },
+    { id: "infographics", label: "Infographics", icon: <BarChart2 size={15}/>   },
   ];
 
   return (
@@ -4044,7 +4046,8 @@ function AppInner({ cover, setCover, page, setPage }) {
     platonic:    <SurprisePage type="platonic"/>,
     midway:      <MidwayPage/>,
     favorites:   <FavoritesPage/>,
-    membership:  <MembershipPage/>,
+    membership:    <MembershipPage/>,
+    infographics:  <InfographicsPage/>,
   };
 
   if (cover) return <CoverPage onEnter={() => setCover(false)} />;

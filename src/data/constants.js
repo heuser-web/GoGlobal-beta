@@ -1,16 +1,16 @@
 export const CITIES = [
   { name: "Las Vegas", state: "Nevada", tagline: "The Entertainment Capital", icon: "🎰", color: "#FF2D55", accent: "#C9A84C", region: "West", live: true },
-  { name: "New York", state: "New York", tagline: "The City That Never Sleeps", icon: "🗽", color: "#5E5CE6", accent: "#64D2FF", region: "East" },
-  { name: "Los Angeles", state: "California", tagline: "City of Angels", icon: "🌴", color: "#FF9F0A", accent: "#FFD60A", region: "West" },
-  { name: "Miami", state: "Florida", tagline: "The Magic City", icon: "🌊", color: "#64D2FF", accent: "#5E5CE6", region: "East" },
-  { name: "Chicago", state: "Illinois", tagline: "The Windy City", icon: "🏙️", color: "#30D158", accent: "#64D2FF", region: "Midwest" },
-  { name: "Nashville", state: "Tennessee", tagline: "Music City", icon: "🎵", color: "#BF5AF2", accent: "#FF375F", region: "South" },
-  { name: "Austin", state: "Texas", tagline: "Keep It Weird", icon: "🤠", color: "#30D158", accent: "#FFD60A", region: "South" },
-  { name: "San Francisco", state: "California", tagline: "The Golden Gate City", icon: "🌉", color: "#FF2D55", accent: "#FF9F0A", region: "West" },
-  { name: "New Orleans", state: "Louisiana", tagline: "The Big Easy", icon: "⚜️", color: "#C9A84C", accent: "#FF2D55", region: "South" },
-  { name: "Denver", state: "Colorado", tagline: "The Mile High City", icon: "🏔️", color: "#5E5CE6", accent: "#64D2FF", region: "West" },
-  { name: "Seattle", state: "Washington", tagline: "The Emerald City", icon: "☕", color: "#30D158", accent: "#5E5CE6", region: "West" },
-  { name: "Honolulu", state: "Hawaii", tagline: "The Crossroads of the Pacific", icon: "🌺", color: "#FF375F", accent: "#FFD60A", region: "West" },
+  { name: "New York", state: "New York", tagline: "The City That Never Sleeps", icon: "🗽", color: "#5E5CE6", accent: "#64D2FF", region: "East", live: true },
+  { name: "Los Angeles", state: "California", tagline: "City of Angels", icon: "🌴", color: "#FF9F0A", accent: "#FFD60A", region: "West", live: true },
+  { name: "Miami", state: "Florida", tagline: "The Magic City", icon: "🌊", color: "#64D2FF", accent: "#5E5CE6", region: "East", live: true },
+  { name: "Chicago", state: "Illinois", tagline: "The Windy City", icon: "🏙️", color: "#30D158", accent: "#64D2FF", region: "Midwest", live: true },
+  { name: "Nashville", state: "Tennessee", tagline: "Music City", icon: "🎵", color: "#BF5AF2", accent: "#FF375F", region: "South", live: true },
+  { name: "Austin", state: "Texas", tagline: "Keep It Weird", icon: "🤠", color: "#30D158", accent: "#FFD60A", region: "South", live: true },
+  { name: "San Francisco", state: "California", tagline: "The Golden Gate City", icon: "🌉", color: "#FF2D55", accent: "#FF9F0A", region: "West", live: true },
+  { name: "New Orleans", state: "Louisiana", tagline: "The Big Easy", icon: "⚜️", color: "#C9A84C", accent: "#FF2D55", region: "South", live: true },
+  { name: "Denver", state: "Colorado", tagline: "The Mile High City", icon: "🏔️", color: "#5E5CE6", accent: "#64D2FF", region: "West", live: true },
+  { name: "Seattle", state: "Washington", tagline: "The Emerald City", icon: "☕", color: "#30D158", accent: "#5E5CE6", region: "West", live: true },
+  { name: "Honolulu", state: "Hawaii", tagline: "The Crossroads of the Pacific", icon: "🌺", color: "#FF375F", accent: "#FFD60A", region: "West", live: true },
 ];
 export const VEGAS_HIKES = [
   {

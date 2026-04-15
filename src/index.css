@@ -225,6 +225,88 @@ body {
   border-radius: var(--radius-sm);
 }
 
+/* ─── INFOGRAPHICS PAGE ──────────────────────────────────────── */
+@keyframes ig-shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
+@keyframes ig-pulse-gold {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.4; }
+}
+@keyframes ig-fade-up {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.ig-skeleton {
+  background: linear-gradient(90deg, #181818 25%, #222 50%, #181818 75%);
+  background-size: 200% 100%;
+  animation: ig-shimmer 1.8s infinite;
+  border-radius: 4px;
+}
+.ig-pulse-gold { animation: ig-pulse-gold 2s ease-in-out infinite; }
+.ig-fade-up    { animation: ig-fade-up 0.45s ease forwards; }
+
+.ig-gold-divider {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(201,168,76,0.25), transparent);
+}
+
+/* Article markdown */
+.ig-article h1 {
+  font-family: var(--font-display);
+  font-size: 1.9rem; font-weight: 700;
+  color: #ede8df; line-height: 1.25;
+  margin-bottom: 1.5rem; letter-spacing: -0.01em;
+}
+.ig-article h2 {
+  font-family: var(--font-display);
+  font-size: 1.25rem; font-weight: 600;
+  color: #e8c97a; margin-top: 2rem; margin-bottom: 0.75rem;
+}
+.ig-article h3 {
+  font-size: 0.8rem; font-weight: 600;
+  color: #ede8df; margin-top: 1.5rem; margin-bottom: 0.5rem;
+  text-transform: uppercase; letter-spacing: 0.08em;
+}
+.ig-article p  { font-size: 1rem; line-height: 1.85; color: #ede8df; margin-bottom: 1.25rem; font-weight: 300; }
+.ig-article ul, .ig-article ol { margin: 0.75rem 0 1.25rem 1.5rem; }
+.ig-article li { font-size: 1rem; line-height: 1.75; color: #ede8df; margin-bottom: 0.4rem; font-weight: 300; }
+.ig-article li::marker { color: #C9A84C; }
+.ig-article strong { font-weight: 600; color: #ede8df; }
+.ig-article em    { font-style: italic; color: #8a847c; }
+.ig-article blockquote {
+  border-left: 2px solid #C9A84C;
+  padding: 0.75rem 1.25rem; margin: 1.5rem 0;
+  background: rgba(201,168,76,0.08);
+  border-radius: 0 4px 4px 0;
+}
+.ig-article blockquote p { margin-bottom: 0; font-style: italic; color: #e8c97a; }
+.ig-article hr { border: none; height: 1px; background: linear-gradient(90deg, transparent, rgba(201,168,76,0.2), transparent); margin: 2rem 0; }
+
+/* Infographic card drop cap */
+.ig-infographic-content p:first-of-type::first-letter {
+  font-family: var(--font-display);
+  font-size: 3.5rem; font-weight: 700;
+  color: #C9A84C; float: left;
+  line-height: 0.8; margin-right: 0.12em; margin-top: 0.06em;
+}
+.ig-infographic-content blockquote p::first-letter {
+  font-size: unset; float: none;
+  line-height: unset; margin: 0; color: #e8c97a;
+}
+.ig-infographic-card {
+  box-shadow: 0 8px 40px rgba(0,0,0,0.6), 0 0 0 1px rgba(201,168,76,0.1);
+}
+
+/* Print */
+@media print {
+  .ig-no-print { display: none !important; }
+  #ig-print-target { border: none !important; border-radius: 0 !important; box-shadow: none !important; max-width: 100% !important; }
+  #ig-print-target img { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+}
+
 /* ─── RIPPLE BUTTON ──────────────────────────────────────────── */
 :root {
   --button-ripple-color: oklch(0.985 0 0 / 0.25);

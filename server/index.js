@@ -1,7 +1,7 @@
 import express from "express";
 import cron from "node-cron";
 import Stripe from "stripe";
-import { createHash } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import { existsSync, writeFileSync, mkdirSync, readdirSync, readFileSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
@@ -12,11 +12,14 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 config({ path: join(__dirname, "../.env") });
 
 const app = express();
-const PORT = 3002;
+const PORT = process.env.PORT || 3002;
 const IMAGES_DIR = join(__dirname, "public/images");
 const DATA_DIR = join(__dirname, "data");
+const BUILD_DIR  = join(__dirname, "../build");
+const RE_DATA_DIR = join(__dirname, "data/realestate");
 
-mkdirSync(IMAGES_DIR, { recursive: true });
+mkdirSync(IMAGES_DIR,  { recursive: true });
+mkdirSync(RE_DATA_DIR, { recursive: true });
 mkdirSync(DATA_DIR, { recursive: true });
 
 app.use((req, res, next) => {
@@ -26,13 +29,13 @@ app.use((req, res, next) => {
 });
 app.use(express.json());
 
-// ─── Root ─────────────────────────────────────────────────────────
-app.get("/", (req, res) => {
-  res.json({ app: "GoGlobal API", version: "2.0", status: "ok", docs: ["/api/health", "/api/events", "/api/trails", "/api/generate"] });
-});
-
 // ─── Static image serving ─────────────────────────────────────────
 app.use("/api/images", express.static(IMAGES_DIR, { maxAge: "365d", immutable: true }));
+
+// ─── Serve React build (SPA fallback) ─────────────────────────────
+if (existsSync(BUILD_DIR)) {
+  app.use(express.static(BUILD_DIR));
+}
 
 // ─── Real Photo Lookup ────────────────────────────────────────────
 // GET /api/image?prompt=<text>
@@ -470,6 +473,376 @@ cron.schedule("0 0 * * *", () => {
   console.log("[Pipeline] Running scheduled daily generation...");
   runDailyPipeline(apiKey).catch((e) => console.error("[Pipeline] Cron error:", e.message));
 });
+
+// ═══════════════════════════════════════════════════════════════════
+// GOREALESTATE — SEMrush + Venice AI Content Pipeline
+// Routes: /api/questions/weekly  /api/questions/history
+//         /api/questions/refresh /api/questions/import
+//         /api/articles  /api/top3
+//         /api/synthesize  /api/auto-generate
+// Cron:   Every Monday 6:00 AM
+// ═══════════════════════════════════════════════════════════════════
+
+const RE_HISTORY_FILE  = join(RE_DATA_DIR, "history.json");
+const RE_ARTICLES_FILE = join(RE_DATA_DIR, "articles.json");
+
+// ── Storage helpers ──────────────────────────────────────────────
+function readJSON(file, fallback) {
+  try { return JSON.parse(readFileSync(file, "utf-8")); }
+  catch { return fallback; }
+}
+function writeJSON(file, data) {
+  writeFileSync(file, JSON.stringify(data, null, 2), "utf-8");
+}
+function getISOWeek() {
+  const d   = new Date();
+  const day = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - day);
+  const jan1 = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  const wk   = Math.ceil((((d - jan1) / 86400000) + 1) / 7);
+  return `${d.getUTCFullYear()}-W${String(wk).padStart(2, "0")}`;
+}
+function pruneHistory(history) {
+  const keys = Object.keys(history).sort().reverse().slice(0, 26);
+  const out  = {};
+  keys.forEach((k) => (out[k] = history[k]));
+  return out;
+}
+
+// ── SEMrush ──────────────────────────────────────────────────────
+const SEMRUSH_PHRASES = [
+  "Las Vegas real estate",
+  "living in Las Vegas",
+  "Las Vegas housing market",
+  "buying home Las Vegas",
+  "Las Vegas home prices",
+  "Clark County real estate",
+  "Henderson Nevada homes",
+  "Summerlin Las Vegas homes",
+];
+
+function getSeedQuestions() {
+  return [
+    { keyword: "what is the cost of living in Las Vegas",              volume: 140, difficulty: 21 },
+    { keyword: "what is it like living in Las Vegas",                  volume: 140, difficulty: 15 },
+    { keyword: "is living in Las Vegas expensive",                     volume: 140, difficulty: 11 },
+    { keyword: "are home prices dropping in Las Vegas",                volume: 30,  difficulty: 0  },
+    { keyword: "how to buy a home in Las Vegas",                       volume: 30,  difficulty: 0  },
+    { keyword: "how is the real estate market in Las Vegas right now", volume: 20,  difficulty: 0  },
+    { keyword: "is Las Vegas real estate a good investment",           volume: 20,  difficulty: 0  },
+    { keyword: "is Las Vegas real estate overpriced",                  volume: 20,  difficulty: 0  },
+    { keyword: "will the housing market crash in Las Vegas",           volume: 20,  difficulty: 0  },
+    { keyword: "what is the average home price in Las Vegas",          volume: 20,  difficulty: 0  },
+  ];
+}
+
+async function fetchSEMrushQuestions(phrase, apiKey) {
+  const params = new URLSearchParams({
+    type: "phrase_questions", key: apiKey, phrase,
+    database: "us", display_limit: "15", display_sort: "nq_desc",
+    export_columns: "Ph,Nq,Kd", export_decode: "1",
+  });
+  const res  = await fetch(`https://api.semrush.com/?${params}`);
+  const text = await res.text();
+  if (!res.ok || text.startsWith("ERROR")) throw new Error(`SEMrush: ${text.slice(0, 120)}`);
+  return text.trim().split("\n").slice(1)
+    .map((line) => {
+      const [keyword, vol, kd] = line.split(";");
+      return { keyword: keyword?.trim(), volume: parseInt(vol, 10) || 0, difficulty: parseInt(kd, 10) || 0 };
+    })
+    .filter((q) => q.keyword && q.volume > 0);
+}
+
+async function runWeeklyPull() {
+  const week    = getISOWeek();
+  const history = readJSON(RE_HISTORY_FILE, {});
+  if (history[week]?.source === "semrush-mcp") {
+    console.log(`[SEMrush] Week ${week} already has MCP data — skipping API pull`);
+    return { week, questions: history[week].questions };
+  }
+
+  const semrushKey = process.env.SEMRUSH_API_KEY;
+  let questions;
+  if (!semrushKey || semrushKey === "your_semrush_api_key_here") {
+    console.warn("[SEMrush] Key not set — using seed questions");
+    questions = getSeedQuestions();
+  } else {
+    console.log("[SEMrush] Fetching questions…");
+    const results = await Promise.allSettled(SEMRUSH_PHRASES.map((p) => fetchSEMrushQuestions(p, semrushKey)));
+    const seen = new Set();
+    const all  = [];
+    for (const r of results) {
+      if (r.status === "fulfilled") {
+        for (const q of r.value) {
+          if (!seen.has(q.keyword)) { seen.add(q.keyword); all.push(q); }
+        }
+      }
+    }
+    questions = all.length > 0 ? all.sort((a, b) => b.volume - a.volume).slice(0, 10) : getSeedQuestions();
+  }
+
+  history[week] = {
+    fetchedAt: new Date().toISOString(), questions,
+    articlesGenerated: history[week]?.articlesGenerated ?? 0,
+    top3: history[week]?.top3 ?? [],
+  };
+  writeJSON(RE_HISTORY_FILE, pruneHistory(history));
+  console.log(`[SEMrush] ✓ ${questions.length} questions stored for ${week}`);
+  return { week, questions };
+}
+
+// ── Venice AI ────────────────────────────────────────────────────
+const VENICE_URL   = "https://api.venice.ai/api/v1/chat/completions";
+const VENICE_MODEL = process.env.VENICE_MODEL ?? "llama-3.3-70b";
+
+const RE_SYSTEM_PROMPT = `You are writing real estate content as Tom Heuser — co-owner of Magenta Real Estate, Top 1% Las Vegas agent, Summerlin resident for 20+ years, with 1,400+ career sales, $418M+ closed, and 900+ five-star reviews.
+
+Tom sounds like your smartest friend who knows more about Las Vegas real estate than anyone. Radically honest, data-grounded, direct. References specific neighborhoods (The Ridges, The Paseos, Summerlin, Henderson, MacDonald Highlands) and zip codes (89135, 89138, 89134, 89144, 89128, 89052).
+
+FORMAT: Markdown with # title, ## sections. LENGTH: 400–1000 words based on topic complexity. NEVER use: "dream home", "hot market", "nestled", "premier", "boasts", "turnkey", "seamless", "won't last long".
+
+End with a personal invitation to connect through GoRealestate — specific, warm, not a generic CTA.`;
+
+async function synthesizeArticle(keyword, semrushContext) {
+  const veniceKey = process.env.VENICE_API_KEY;
+  if (!veniceKey || veniceKey === "your_venice_api_key_here") throw new Error("Venice API key not configured.");
+
+  const res = await fetch(VENICE_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${veniceKey}` },
+    body: JSON.stringify({
+      model: VENICE_MODEL, temperature: 0.72, max_tokens: 1500,
+      messages: [
+        { role: "system", content: RE_SYSTEM_PROMPT },
+        { role: "user",   content: `Write a professional real estate article that fully answers: "${keyword}"\n\nSEO context: ${semrushContext?.volume ?? "?"} searches/month, KD ${semrushContext?.difficulty ?? "?"}/100\nAudience: buyers and sellers in Las Vegas Valley, $500K–$1.5M range.` },
+      ],
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error?.message ?? `Venice HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+// ── AI Agent: select top 3 ───────────────────────────────────────
+async function selectTop3ByAgent(questions) {
+  const veniceKey = process.env.VENICE_API_KEY;
+  if (!veniceKey || veniceKey === "your_venice_api_key_here") {
+    console.warn("[Agent] Venice key not set — using volume order");
+    return questions.slice(0, 3);
+  }
+  const questionList = questions
+    .map((q, i) => `${i + 1}. "${q.keyword}" — ${q.volume}/mo, KD ${q.difficulty}`)
+    .join("\n");
+  try {
+    const res = await fetch(VENICE_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${veniceKey}` },
+      body: JSON.stringify({
+        model: VENICE_MODEL, temperature: 0.2, max_tokens: 40,
+        messages: [
+          { role: "system", content: "Output only valid JSON arrays. No text, no markdown." },
+          { role: "user",   content: `You are a real estate content strategist. Select the 3 questions with the highest purchase intent and local expertise value. Questions:\n${questionList}\n\nRespond with ONLY a JSON array of 3 integers (question numbers). Example: [3, 7, 1]` },
+        ],
+      }),
+    });
+    const data    = await res.json();
+    const raw     = data.choices?.[0]?.message?.content?.trim() ?? "[]";
+    const indices = JSON.parse(raw.replace(/```[a-z]*|```/gi, "").trim());
+    if (!Array.isArray(indices) || indices.length < 1) throw new Error("invalid response");
+    const top3 = indices.slice(0, 3).map((n) => questions[Number(n) - 1]).filter(Boolean);
+    if (top3.length === 0) throw new Error("no valid indices");
+    console.log(`[Agent] ✓ Top 3: ${top3.map((q) => `"${q.keyword.slice(0, 40)}"`).join(", ")}`);
+    return top3;
+  } catch (e) {
+    console.warn("[Agent] Fallback to volume order:", e.message);
+    return questions.slice(0, 3);
+  }
+}
+
+async function autoGenerateTop3() {
+  const week      = getISOWeek();
+  const history   = readJSON(RE_HISTORY_FILE, {});
+  const questions = history[week]?.questions ?? getSeedQuestions();
+
+  console.log("[AutoGen] AI agent selecting top 3…");
+  const top3 = await selectTop3ByAgent(questions);
+
+  const h = readJSON(RE_HISTORY_FILE, {});
+  if (h[week]) { h[week].top3 = top3; writeJSON(RE_HISTORY_FILE, pruneHistory(h)); }
+
+  const results = [];
+  for (let i = 0; i < top3.length; i++) {
+    const q        = top3[i];
+    const articles = readJSON(RE_ARTICLES_FILE, []);
+    const existing = articles.find((a) => a.keyword.toLowerCase() === q.keyword.toLowerCase());
+    if (existing) {
+      console.log(`[AutoGen] ${i + 1}/3 "${q.keyword.slice(0, 40)}" — skipped (exists)`);
+      results.push({ skipped: true, article: existing });
+      continue;
+    }
+    console.log(`[AutoGen] ${i + 1}/3 "${q.keyword.slice(0, 40)}"…`);
+    try {
+      const veniceRes = await synthesizeArticle(q.keyword, q);
+      const content   = veniceRes.choices?.[0]?.message?.content ?? "";
+      const tokens    = veniceRes.usage?.total_tokens ?? 0;
+      if (!content) throw new Error("empty Venice response");
+      const article = {
+        id: randomUUID(), keyword: q.keyword, content, tokens,
+        volume: q.volume ?? 0, difficulty: q.difficulty ?? 0,
+        isTop3: true, generatedAt: new Date().toISOString(),
+      };
+      const arr = readJSON(RE_ARTICLES_FILE, []);
+      arr.unshift(article);
+      writeJSON(RE_ARTICLES_FILE, arr.slice(0, 500));
+      const hNow = readJSON(RE_HISTORY_FILE, {});
+      if (hNow[week]) {
+        hNow[week].articlesGenerated = (hNow[week].articlesGenerated ?? 0) + 1;
+        writeJSON(RE_HISTORY_FILE, hNow);
+      }
+      console.log(`[AutoGen]   ✓ ${tokens} tokens`);
+      results.push({ article });
+    } catch (e) {
+      console.error(`[AutoGen]   ✗ ${e.message}`);
+      results.push({ error: e.message, keyword: q.keyword });
+    }
+  }
+  return { top3, results };
+}
+
+// ── GoRealestate Routes ──────────────────────────────────────────
+
+app.get("/api/questions/weekly", async (_, res) => {
+  const week    = getISOWeek();
+  const history = readJSON(RE_HISTORY_FILE, {});
+  if (history[week]) return res.json({ week, questions: history[week].questions });
+  try {
+    res.json(await runWeeklyPull());
+  } catch (e) {
+    console.error("[/api/questions/weekly]", e.message);
+    res.json({ week, questions: getSeedQuestions() });
+  }
+});
+
+app.get("/api/questions/history", (_, res) => {
+  res.json(readJSON(RE_HISTORY_FILE, {}));
+});
+
+app.post("/api/questions/refresh", async (_, res) => {
+  try {
+    res.json(await runWeeklyPull());
+  } catch (e) {
+    console.error("[/api/questions/refresh]", e.message);
+    res.status(502).json({ error: e.message });
+  }
+});
+
+app.post("/api/questions/import", (req, res) => {
+  const { questions, week: reqWeek } = req.body ?? {};
+  if (!Array.isArray(questions) || questions.length === 0)
+    return res.status(400).json({ error: "questions array required" });
+  const week    = reqWeek ?? getISOWeek();
+  const history = readJSON(RE_HISTORY_FILE, {});
+  history[week] = {
+    fetchedAt: new Date().toISOString(), source: "semrush-mcp",
+    questions: questions.slice(0, 10),
+    articlesGenerated: history[week]?.articlesGenerated ?? 0,
+    top3: history[week]?.top3 ?? [],
+  };
+  writeJSON(RE_HISTORY_FILE, pruneHistory(history));
+  console.log(`[Import] ✓ ${questions.length} MCP questions for ${week}`);
+  res.json({ week, imported: questions.length });
+});
+
+app.post("/api/synthesize", async (req, res) => {
+  const { prompt: keyword, context } = req.body ?? {};
+  if (!keyword) return res.status(400).json({ error: "prompt required" });
+  try {
+    const veniceRes = await synthesizeArticle(keyword, context);
+    const content   = veniceRes.choices?.[0]?.message?.content ?? "";
+    const tokens    = veniceRes.usage?.total_tokens ?? 0;
+    if (!content) return res.status(502).json({ error: "empty response from Venice" });
+    const article = {
+      id: randomUUID(), keyword, content, tokens,
+      volume: context?.volume ?? 0, difficulty: context?.difficulty ?? 0,
+      isTop3: false, generatedAt: new Date().toISOString(),
+    };
+    const articles = readJSON(RE_ARTICLES_FILE, []);
+    articles.unshift(article);
+    writeJSON(RE_ARTICLES_FILE, articles.slice(0, 500));
+    const week    = getISOWeek();
+    const history = readJSON(RE_HISTORY_FILE, {});
+    if (history[week]) {
+      history[week].articlesGenerated = (history[week].articlesGenerated ?? 0) + 1;
+      writeJSON(RE_HISTORY_FILE, history);
+    }
+    console.log(`[Venice] ✓ "${keyword.slice(0, 50)}" — ${tokens} tokens`);
+    res.json({ article });
+  } catch (e) {
+    console.error("[/api/synthesize]", e.message);
+    res.status(502).json({ error: e.message });
+  }
+});
+
+app.get("/api/articles", (_, res) => {
+  res.json(readJSON(RE_ARTICLES_FILE, []));
+});
+
+app.get("/api/top3", (_, res) => {
+  const week     = getISOWeek();
+  const history  = readJSON(RE_HISTORY_FILE, {});
+  const articles = readJSON(RE_ARTICLES_FILE, []);
+  const top3Qs   = history[week]?.top3 ?? [];
+  res.json({
+    week,
+    top3: top3Qs.map((q) => ({
+      question: q,
+      article: articles.find((a) => a.keyword.toLowerCase() === q.keyword.toLowerCase()) ?? null,
+    })),
+  });
+});
+
+app.post("/api/auto-generate", async (_, res) => {
+  try {
+    res.json(await autoGenerateTop3());
+  } catch (e) {
+    console.error("[/api/auto-generate]", e.message);
+    res.status(502).json({ error: e.message });
+  }
+});
+
+// ── Weekly cron: every Monday 6:00 AM ───────────────────────────
+cron.schedule("0 6 * * 1", async () => {
+  console.log("[RE Cron] Starting weekly pipeline…");
+  try {
+    await runWeeklyPull();
+    await autoGenerateTop3();
+    console.log("[RE Cron] ✓ Weekly pipeline complete");
+  } catch (e) {
+    console.error("[RE Cron] Error:", e.message);
+  }
+});
+
+// ── Bootstrap: seed questions if no data for current week ────────
+{
+  const week    = getISOWeek();
+  const history = readJSON(RE_HISTORY_FILE, {});
+  if (!history[week]) {
+    console.log("[RE Bootstrap] No data for current week — seeding…");
+    runWeeklyPull().catch((e) => {
+      console.warn("[RE Bootstrap] Pull failed, using seed:", e.message);
+      const h = readJSON(RE_HISTORY_FILE, {});
+      h[week] = { fetchedAt: new Date().toISOString(), questions: getSeedQuestions(), articlesGenerated: 0, top3: [] };
+      writeJSON(RE_HISTORY_FILE, h);
+    });
+  }
+}
+
+// ─── SPA catch-all (must be last) ─────────────────────────────────
+if (existsSync(BUILD_DIR)) {
+  app.use((req, res) => res.sendFile(join(BUILD_DIR, "index.html")));
+}
 
 // ─── Start ────────────────────────────────────────────────────────
 app.listen(PORT, () => {
