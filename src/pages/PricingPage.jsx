@@ -30,7 +30,7 @@ const goglobalPlans = [
   {
     planName: 'Local Pass',
     description: 'Go all-in on your city. Every feature, every spin, every review.',
-    price: '15',
+    price: '5',
     features: [
       "Full access to one city's gems",
       'Unlimited spins — all segments',
@@ -46,7 +46,7 @@ const goglobalPlans = [
   {
     planName: 'GoEverywhere',
     description: 'The whole world is your playground. Every city, every feature, no limits.',
-    price: '25',
+    price: '10',
     features: [
       'All cities unlocked',
       'Unlimited spins — all segments',
@@ -114,11 +114,19 @@ const PricingPage = () => {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const result = params.get('checkout');
-    if (result === 'success' || result === 'cancelled') {
+    if (result === 'success') {
+      const sessionId = params.get('session_id');
+      if (sessionId) {
+        fetch(`/api/checkout-session?session_id=${encodeURIComponent(sessionId)}`)
+          .then(res => res.ok ? setCheckoutStatus('success') : setCheckoutStatus('cancelled'))
+          .catch(() => setCheckoutStatus('cancelled'));
+      } else {
+        setCheckoutStatus('cancelled');
+      }
+      window.history.replaceState({}, '', window.location.pathname);
+    } else if (result === 'cancelled') {
       setCheckoutStatus(result);
-      // Clean the URL so a refresh doesn't re-show the toast
-      const clean = window.location.pathname;
-      window.history.replaceState({}, '', clean);
+      window.history.replaceState({}, '', window.location.pathname);
     }
   }, []);
 

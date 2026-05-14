@@ -44,7 +44,7 @@ const TIERS = [
   {
     id:          'local',
     name:        'GoLocal',
-    price:       15,
+    price:       5,
     accent:      ROSE,
     accentSolid: `${ROSE}22`,
     tagline:     'Every feature. One city. Your city.',
@@ -63,7 +63,7 @@ const TIERS = [
   {
     id:          'everywhere',
     name:        'GoEverywhere',
-    price:       25,
+    price:       10,
     accent:      GOLD,
     accentSolid: `${GOLD}22`,
     tagline:     'Every city. Every feature. No limits.',
@@ -344,7 +344,7 @@ function CityPicker({ onSelect, onClose, currentCity }) {
                   whileTap={{ scale: 0.96 }}
                   onClick={() => isLive && onSelect(city.name)}
                   style={{
-                    padding: '14px 16px', borderRadius: 16, border: 'none',
+                    padding: '14px 16px', borderRadius: 16,
                     background: isActive ? `${city.color}20` : 'rgba(255,255,255,0.04)',
                     border: `1px solid ${isActive ? city.color + '60' : 'rgba(255,255,255,0.06)'}`,
                     cursor: isLive ? 'pointer' : 'not-allowed',
@@ -447,13 +447,36 @@ export default function MembershipPage() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const result = params.get('checkout');
-    const plan   = params.get('plan');
 
-    if (result === 'success' && plan) {
-      const newTier = plan === 'local-pass' ? 'local' : 'everywhere';
-      setTier(newTier, newTier === 'local' ? (selectedCity || null) : null);
-      setToastMsg('🎉  Welcome! Your plan is now active.');
-      if (newTier === 'local' && !selectedCity) setShowPicker(true);
+    if (result === 'success') {
+      const sessionId = params.get('session_id');
+      if (!sessionId) {
+        setToastMsg('⚠️  Could not verify checkout. Please try again.');
+        window.history.replaceState({}, '', window.location.pathname);
+        return;
+      }
+
+      setLoading('checkout');
+      fetch(`/api/checkout-session?session_id=${encodeURIComponent(sessionId)}`)
+        .then(async (res) => {
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok || !data.verified) throw new Error(data.error || 'Checkout verification failed');
+          return data;
+        })
+        .then((data) => {
+          const newTier = data.plan === 'local-pass' ? 'local' : 'everywhere';
+          const pendingCity = sessionStorage.getItem('gg_pending_city');
+          const city = newTier === 'local' ? (pendingCity || selectedCity || null) : null;
+          setTier(newTier, city);
+          if (pendingCity) sessionStorage.removeItem('gg_pending_city');
+          setToastMsg('🎉  Welcome! Your plan is now active.');
+          if (newTier === 'local' && !city) setShowPicker(true);
+        })
+        .catch((err) => {
+          console.error('[Checkout verify]', err);
+          setToastMsg('⚠️  Checkout could not be verified yet. Please try again.');
+        })
+        .finally(() => setLoading(null));
     } else if (result === 'cancelled') {
       setToastMsg('↩️  No changes made — your plan is still waiting.');
     }
@@ -519,18 +542,6 @@ export default function MembershipPage() {
       setLoading(null);
     }
   };
-
-  // Restore pending city after successful checkout
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get('checkout') === 'success') {
-      const pendingCity = sessionStorage.getItem('gg_pending_city');
-      if (pendingCity) {
-        setSelectedCity(pendingCity);
-        sessionStorage.removeItem('gg_pending_city');
-      }
-    }
-  }, []); // eslint-disable-line
 
   const tp = dark ? '#F5F5F7' : '#1D1D1F';
   const tm = dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)';

@@ -1,6 +1,8 @@
 node_modules/
 dist/
+build/
 .env
+.tmp.driveupload/
 
 # AI-generated image cache (regenerated on first run)
 server/public/images/

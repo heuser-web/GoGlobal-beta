@@ -1,4 +1,61 @@
 {
+  "2026-W19": {
+    "fetchedAt": "2026-05-07T15:13:57.760Z",
+    "questions": [
+      {
+        "keyword": "what is the cost of living in Las Vegas",
+        "volume": 140,
+        "difficulty": 21
+      },
+      {
+        "keyword": "what is it like living in Las Vegas",
+        "volume": 140,
+        "difficulty": 15
+      },
+      {
+        "keyword": "is living in Las Vegas expensive",
+        "volume": 140,
+        "difficulty": 11
+      },
+      {
+        "keyword": "are home prices dropping in Las Vegas",
+        "volume": 30,
+        "difficulty": 0
+      },
+      {
+        "keyword": "how to buy a home in Las Vegas",
+        "volume": 30,
+        "difficulty": 0
+      },
+      {
+        "keyword": "how is the real estate market in Las Vegas right now",
+        "volume": 20,
+        "difficulty": 0
+      },
+      {
+        "keyword": "is Las Vegas real estate a good investment",
+        "volume": 20,
+        "difficulty": 0
+      },
+      {
+        "keyword": "is Las Vegas real estate overpriced",
+        "volume": 20,
+        "difficulty": 0
+      },
+      {
+        "keyword": "will the housing market crash in Las Vegas",
+        "volume": 20,
+        "difficulty": 0
+      },
+      {
+        "keyword": "what is the average home price in Las Vegas",
+        "volume": 20,
+        "difficulty": 0
+      }
+    ],
+    "articlesGenerated": 0,
+    "top3": []
+  },
   "2026-W16": {
     "fetchedAt": "2026-04-13T00:00:00.000Z",
     "source": "semrush-mcp",

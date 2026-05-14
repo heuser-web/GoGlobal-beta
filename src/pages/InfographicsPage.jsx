@@ -48,6 +48,19 @@ function bodyWithoutTitle(markdown) {
   return idx >= 0 ? lines.slice(idx + 1).join("\n").trimStart() : markdown;
 }
 
+function getAdminToken() {
+  try {
+    return sessionStorage.getItem("gg_admin_token") || "";
+  } catch {
+    return "";
+  }
+}
+
+function adminHeaders(extra = {}) {
+  const token = getAdminToken();
+  return token ? { ...extra, "X-GoGlobal-Admin-Token": token } : extra;
+}
+
 // ── API helpers ───────────────────────────────────────────────────────────
 async function fetchWeeklyQuestions() {
   const r = await fetch("/api/questions/weekly");
@@ -72,7 +85,7 @@ async function fetchTop3() {
 async function generateArticle(question) {
   const r = await fetch("/api/synthesize", {
     method:  "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: adminHeaders({ "Content-Type": "application/json" }),
     body:    JSON.stringify({
       prompt:  question.keyword,
       context: { volume: question.volume, difficulty: question.difficulty },
@@ -82,12 +95,12 @@ async function generateArticle(question) {
   return r.json();
 }
 async function triggerAutoGenerate() {
-  const r = await fetch("/api/auto-generate", { method: "POST" });
+  const r = await fetch("/api/auto-generate", { method: "POST", headers: adminHeaders() });
   if (!r.ok) throw new Error(await r.text());
   return r.json();
 }
 async function refreshQuestions() {
-  const r = await fetch("/api/questions/refresh", { method: "POST" });
+  const r = await fetch("/api/questions/refresh", { method: "POST", headers: adminHeaders() });
   if (!r.ok) throw new Error(await r.text());
   return r.json();
 }
@@ -711,8 +724,20 @@ export default function InfographicsPage() {
   const [semrushStatus,   setSemrushStatus]   = useState("online");
   const [veniceStatus,    setVeniceStatus]    = useState("online");
   const [weekLabel,       setWeekLabel]       = useState("");
+  const [adminTokenInput, setAdminTokenInput] = useState("");
+  const [hasAdminToken,   setHasAdminToken]   = useState(() => !!getAdminToken());
 
   useEffect(() => { loadAll(); }, []);
+
+  function saveAdminToken(e) {
+    e.preventDefault();
+    const token = adminTokenInput.trim();
+    if (!token) return;
+    sessionStorage.setItem("gg_admin_token", token);
+    setHasAdminToken(true);
+    setAdminTokenInput("");
+    setError(null);
+  }
 
   async function loadAll() {
     setQLoading(true);
@@ -748,6 +773,10 @@ export default function InfographicsPage() {
       return;
     }
     setActiveArticle(null);
+    if (!getAdminToken()) {
+      setError("Admin token required to generate articles.");
+      return;
+    }
     setIsGenerating(true);
     setVeniceStatus("loading");
     try {
@@ -768,6 +797,10 @@ export default function InfographicsPage() {
   }
 
   async function handleAutoGenerate() {
+    if (!getAdminToken()) {
+      setError("Admin token required to run the weekly generator.");
+      return;
+    }
     setIsAutoGen(true);
     setError(null);
     setSemrushStatus("loading");
@@ -793,6 +826,10 @@ export default function InfographicsPage() {
   }
 
   async function handleRefresh() {
+    if (!getAdminToken()) {
+      setError("Admin token required to refresh SEMrush questions.");
+      return;
+    }
     setIsRefreshing(true);
     setSemrushStatus("loading");
     setError(null);
@@ -856,9 +893,35 @@ export default function InfographicsPage() {
             </span>
           </div>
         </div>
-        <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: "var(--ig-tm)" }}>
-          Pipeline: SEMrush → AI Agent → Venice AI · Las Vegas $500K–$1.5M
-        </span>
+        {hasAdminToken ? (
+          <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: "var(--ig-gold)" }}>
+            Admin unlocked · Pipeline: SEMrush → AI Agent → Venice AI
+          </span>
+        ) : (
+          <form onSubmit={saveAdminToken} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <input
+              value={adminTokenInput}
+              onChange={(e) => setAdminTokenInput(e.target.value)}
+              placeholder="Admin token"
+              type="password"
+              style={{
+                width: 132, padding: "6px 9px", borderRadius: 8,
+                border: "1px solid var(--ig-bdr)", background: "var(--ig-card)",
+                color: "var(--ig-tp)", fontSize: 11, fontFamily: "var(--font-mono)", outline: "none",
+              }}
+            />
+            <button
+              type="submit"
+              style={{
+                padding: "6px 10px", borderRadius: 8, border: "1px solid var(--ig-gold-bdr)",
+                background: "var(--ig-gold-dim)", color: "var(--ig-gold)",
+                fontSize: 10, fontFamily: "var(--font-mono)", cursor: "pointer",
+              }}
+            >
+              Unlock
+            </button>
+          </form>
+        )}
       </div>
 
       {/* ── Error Banner ─────────────────────────────────────────────── */}

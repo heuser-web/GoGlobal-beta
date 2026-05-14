@@ -24,10 +24,23 @@ mkdirSync(DATA_DIR, { recursive: true });
 
 app.use((req, res, next) => {
   res.header("Access-Control-Allow-Origin", "*");
-  res.header("Access-Control-Allow-Headers", "Content-Type");
+  res.header("Access-Control-Allow-Headers", "Content-Type, X-GoGlobal-Admin-Token");
   next();
 });
 app.use(express.json());
+
+const geminiApiKey = () => process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY;
+const serperApiKey = () => process.env.SERPER_API_KEY || process.env.VITE_SERPER_API_KEY;
+const yelpApiKey = () => process.env.YELP_API_KEY || process.env.VITE_YELP_API_KEY;
+const adminToken = () => process.env.GOGLOBAL_ADMIN_TOKEN || process.env.ADMIN_TOKEN;
+
+function requireAdmin(req, res, next) {
+  const configured = adminToken();
+  if (!configured) return res.status(503).json({ error: "Admin token not configured" });
+  const supplied = req.get("X-GoGlobal-Admin-Token") || "";
+  if (supplied !== configured) return res.status(401).json({ error: "Admin access required" });
+  next();
+}
 
 // ─── Static image serving ─────────────────────────────────────────
 app.use("/api/images", express.static(IMAGES_DIR, { maxAge: "365d", immutable: true }));
@@ -44,8 +57,8 @@ app.get("/api/image", async (req, res) => {
   const { prompt } = req.query;
   if (!prompt) return res.status(400).json({ error: "prompt required" });
 
-  const serperKey = process.env.VITE_SERPER_API_KEY;
-  if (!serperKey) return res.status(500).json({ error: "VITE_SERPER_API_KEY not set" });
+  const serperKey = serperApiKey();
+  if (!serperKey) return res.status(500).json({ error: "SERPER_API_KEY not set" });
 
   const hash = createHash("sha256").update(prompt.trim()).digest("hex").slice(0, 20);
   const filename = `${hash}.jpg`;
@@ -155,22 +168,311 @@ app.get("/api/trails", (req, res) => {
 // ─── Romey Huddle — POST /api/generate ───────────────────────────
 // Body: { vibe, orientation, budget, favorites[] }
 // Returns: { huddle_logs, romey_intro, itinerary, atmospheric_images, learning_summary }
+const ROMEY_VENUE_GUIDE = `ROMEY'S LAS VEGAS VENUE BRAIN:
+
+POPULAR / CREDIBLE DINNER ANCHORS:
+- Strip splurge: SW Steakhouse, Mizumi, Delilah, Bazaar Meat, Cote Korean Steakhouse, Carbone, Bavette's, Mott 32, Wing Lei, Joël Robuchon, Le Cirque.
+- Hot/new: Gymkhana at Aria, Sartiano's at Wynn, Braseria by EDO, Cantina Contramar, Mother Wolf, Rare Society, Butcher and Thief.
+- Niche/off-Strip/local: Esther's Kitchen, Lotus of Siam, Sparrow + Wolf, Raku, Partage, EDO Gastro Tapas, Moia Peruvian, Bob Taylor's Ranch House, Herbs & Rye, Cleaver, Tacos El Gordo.
+- Casual but high-signal: Secret Pizza, Miznon, China Poblano, Best Friend, Peppermill, Shang Artisan Noodle, 888 Japanese BBQ.
+
+DESSERT / SECOND-ACT TREATS:
+- Dominique Ansel, Milk Bar, Sweets Raku, Luv-It Frozen Custard, Sorry Not Sorry Creamery, Dandelion Chocolate, Bellagio Patisserie, Ethel M Chocolates.
+
+NON-FOOD ANCHORS:
+- Iconic: High Roller, Bellagio Conservatory, Bellagio fountains, Eiffel Tower viewing deck, Gondola at Venetian, Neon Museum, Area15/Omega Mart, Sphere exterior/photo stop.
+- Shows and culture: Absinthe, Cirque du Soleil O, Awakening, Atomic Saloon, The Magician's Study, Mob Museum speakeasy, Lost Spirits.
+- Wellness/low-key: Qua Baths & Spa, Awana Spa, Sahra Spa, Spa at Wynn, Red Rock Spa, Beverly Theater, Galaxy Theatres Boulevard Mall.
+- Adventure/outdoors: Red Rock scenic loop, Valley of Fire, Seven Magic Mountains, Springs Preserve, Lake Las Vegas, Fly LINQ, TopGolf.
+- Nightcap: Velveteen Rabbit, The Laundry Room, Golden Tiki, Rosina, Ski Lodge, Legacy Club, Skyfall Lounge, Ghost Donkey.
+
+QUALITY BAR:
+- Prefer specific, reservation-worthy, locally loved, or genuinely iconic places.
+- Avoid filler chains unless the user asks for cheap/casual.
+- Avoid vague "explore the Strip" stops; every item needs an exact venue or bounded place.
+- Never make the plan mostly food. A great GoGlobal night has an opener, one strong anchor meal, and a different-feeling closer.`;
+
+const ROMANTIC_PLAN_ARCS = [
+  {
+    name: "Skyline Classic",
+    sequence: "iconic view opener -> dinner anchor -> dessert or romantic walk",
+    example: "High Roller golden-hour cabin -> dinner at Mizumi or Esther's Kitchen -> Dominique Ansel or Bellagio fountains",
+  },
+  {
+    name: "Spa Cinema Slow Burn",
+    sequence: "spa or wellness reset -> dinner anchor -> movie/show/low-key closer",
+    example: "Awana Spa or Qua Baths -> dinner at Bavette's or Sparrow + Wolf -> Beverly Theater or Absinthe",
+  },
+  {
+    name: "Art District Date",
+    sequence: "gallery/neighborhood wander -> dinner anchor -> cocktail or dessert",
+    example: "Arts District murals -> Esther's Kitchen or EDO -> Velveteen Rabbit or Luv-It",
+  },
+  {
+    name: "Old Vegas Mood",
+    sequence: "nostalgic opener -> classic dinner -> intimate nightcap",
+    example: "Neon Museum -> Bob Taylor's Ranch House or Golden Steer-style steakhouse -> Laundry Room or Golden Tiki",
+  },
+  {
+    name: "Big Swing Luxury",
+    sequence: "spectacle opener -> splurge dinner -> polished nightcap",
+    example: "Bellagio Conservatory/fountains -> SW Steakhouse or Joël Robuchon -> Skyfall Lounge",
+  },
+  {
+    name: "Soft Adventure",
+    sequence: "scenic outdoor moment -> relaxed dinner -> dessert",
+    example: "Red Rock scenic loop -> Lotus of Siam or Partage -> Ethel M Chocolates",
+  },
+];
+
+const PLATONIC_PLAN_ARCS = [
+  {
+    name: "Play Then Feast",
+    sequence: "active/game opener -> one meal anchor -> playful closer",
+    example: "TopGolf or Fly LINQ -> Tacos El Gordo or Best Friend -> Area15/Omega Mart",
+  },
+  {
+    name: "Culture Crawl",
+    sequence: "museum/culture opener -> one meal anchor -> speakeasy/mocktail closer",
+    example: "Mob Museum -> Esther's Kitchen or China Poblano -> Golden Tiki or Mob Museum speakeasy",
+  },
+  {
+    name: "Off-Strip Food Nerd",
+    sequence: "neighborhood activity -> standout local meal -> dessert or arcade",
+    example: "Chinatown wander -> Raku or Shang Artisan Noodle -> Sweets Raku or Pinball Hall of Fame",
+  },
+  {
+    name: "Outdoor Reset",
+    sequence: "outdoor scenic anchor -> casual meal -> easy social closer",
+    example: "Seven Magic Mountains or Springs Preserve -> Secret Pizza or Peppermill -> High Roller",
+  },
+  {
+    name: "High-Energy Night",
+    sequence: "spectacle/activity -> one dinner anchor -> nightlife closer",
+    example: "Absinthe or Sphere photo stop -> Cote or Momofuku -> Legacy Club or Ghost Donkey",
+  },
+];
+
+const HUDDLE_PLAN_ARCS = [
+  ...ROMANTIC_PLAN_ARCS,
+  ...PLATONIC_PLAN_ARCS,
+  {
+    name: "Surprise Me, But Cohesive",
+    sequence: "one iconic Vegas moment -> one excellent meal -> one unexpected closer",
+    example: "Neon Museum -> Gymkhana or Esther's Kitchen -> Lost Spirits or Velveteen Rabbit",
+  },
+];
+
+function pickRandom(list) {
+  return list[Math.floor(Math.random() * list.length)];
+}
+
+function formatPlanArc(arc) {
+  return `${arc.name}: ${arc.sequence}. Example shape only: ${arc.example}.`;
+}
+
+function isDessertStop(item) {
+  const text = `${item?.type || ""} ${item?.title || ""}`.toLowerCase();
+  return /dessert|custard|creamery|patisserie|chocolate|gelato|bakery|sweets|milk bar|dominique ansel/.test(text);
+}
+
+function isFullMealStop(item) {
+  const text = `${item?.type || ""} ${item?.title || ""} ${item?.description || ""}`.toLowerCase();
+  if (isDessertStop(item)) return false;
+  return /dining|dinner|restaurant|steakhouse|supper|brunch|lunch|pizza|tacos|ramen|thai|sushi|tasting menu|meal/.test(text);
+}
+
+function validateItineraryShape(items, isRomantic) {
+  if (!Array.isArray(items) || items.length < 3) return "Itinerary needs at least 3 real stops.";
+  const mealCount = items.filter(isFullMealStop).length;
+  const nonMealCount = items.filter((item) => !isFullMealStop(item) && !isDessertStop(item)).length;
+  if (mealCount > 1) return "Too many full meal stops. Use exactly one dinner/meal anchor, plus activities or dessert.";
+  if (mealCount < 1) return "Missing one strong dinner/meal anchor.";
+  if (nonMealCount < 2) return isRomantic
+    ? "A date needs at least two non-food moments such as a view, spa, show, movie, walk, or nightcap."
+    : "A hangout needs at least two non-food activity moments.";
+  return null;
+}
+
+async function callVeniceItinerary(veniceKey, prompt) {
+  const veniceRes = await fetch("https://api.venice.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${veniceKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "venice-uncensored",
+      temperature: 0.95,
+      messages: [{ role: "user", content: prompt }],
+    }),
+  });
+
+  if (!veniceRes.ok) {
+    const err = await veniceRes.json().catch(() => ({}));
+    const message = err?.error?.message || `Venice HTTP ${veniceRes.status}`;
+    throw Object.assign(new Error(message), { provider: "Venice", status: veniceRes.status });
+  }
+
+  const data = await veniceRes.json();
+  const text = data?.choices?.[0]?.message?.content;
+  if (!text) throw new Error("empty response from Venice");
+
+  const match = text.match(/\{[\s\S]*\}/);
+  if (!match) throw new Error("no JSON found in Venice response");
+  return JSON.parse(match[0]);
+}
+
+async function callGeminiItinerary(key, prompt) {
+  const geminiRes = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { responseMimeType: "application/json", temperature: 0.92 },
+      }),
+    }
+  );
+
+  if (!geminiRes.ok) {
+    const err = await geminiRes.json().catch(() => ({}));
+    const message = err?.error?.message || `Gemini HTTP ${geminiRes.status}`;
+    throw Object.assign(new Error(message), { provider: "Gemini", status: geminiRes.status });
+  }
+
+  const data = await geminiRes.json();
+  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) throw new Error("empty response from Gemini");
+  const match = text.match(/\{[\s\S]*\}/);
+  return JSON.parse(match ? match[0] : text);
+}
+
+const LOCAL_ITINERARY_TEMPLATES = {
+  romantic: [
+    {
+      name: "Skyline Glow",
+      stops: [
+        { time: "6:00 PM", title: "High Roller Observation Wheel", type: "Experience", description: "Start with skyline views and a built-in first scene before the dinner anchor.", yelpQuery: "High Roller Las Vegas", cost: 28, vibes: ["Romantic", "Scenic"], age21: false },
+        { time: "7:45 PM", title: "Mizumi at Wynn", type: "Dining", description: "A polished dinner anchor with garden views, strong service, and enough ceremony to feel intentional.", yelpQuery: "Mizumi Wynn Las Vegas", cost: 115, vibes: ["Romantic", "Luxury"], age21: false },
+        { time: "9:30 PM", title: "Bellagio Fountains", type: "Experience", description: "Close with a free classic that gives the night a cinematic ending without adding another heavy stop.", yelpQuery: "Bellagio Fountains Las Vegas", cost: 0, vibes: ["Romantic", "Iconic"], age21: false },
+      ],
+    },
+    {
+      name: "Arts District Slow Burn",
+      stops: [
+        { time: "5:45 PM", title: "Arts District Murals on Main Street", type: "Experience", description: "Ease in with a low-pressure walk through local murals, shops, and street texture.", yelpQuery: "Las Vegas Arts District Main Street", cost: 0, vibes: ["Artsy", "Local"], age21: false },
+        { time: "7:15 PM", title: "Esther's Kitchen", type: "Dining", description: "Use Esther's as the one dinner anchor: local-loved, warm, and far less generic than Strip filler.", yelpQuery: "Esther's Kitchen Las Vegas", cost: 58, vibes: ["Romantic", "Local"], age21: false },
+        { time: "9:00 PM", title: "Velveteen Rabbit", type: "Nightlife", description: "Finish nearby with a creative cocktail room that keeps the route compact and intimate.", yelpQuery: "Velveteen Rabbit Las Vegas", cost: 22, vibes: ["Cozy", "Nightlife"], age21: true },
+      ],
+    },
+    {
+      name: "Spa To Screen",
+      stops: [
+        { time: "5:30 PM", title: "Awana Spa at Resorts World", type: "Wellness", description: "Begin with a reset that makes the night feel personal before anything loud or crowded.", yelpQuery: "Awana Spa Resorts World Las Vegas", cost: 95, vibes: ["Luxury", "Relaxed"], age21: false },
+        { time: "7:45 PM", title: "Brezza", type: "Dining", description: "Anchor dinner with polished Italian inside the same resort corridor, keeping logistics easy.", yelpQuery: "Brezza Resorts World Las Vegas", cost: 72, vibes: ["Romantic", "Refined"], age21: false },
+        { time: "9:45 PM", title: "The Beverly Theater", type: "Movie", description: "Close with a curated film or intimate screening room instead of defaulting to another restaurant.", yelpQuery: "The Beverly Theater Las Vegas", cost: 18, vibes: ["Low-key", "Culture"], age21: false },
+      ],
+    },
+    {
+      name: "Old Vegas Date",
+      stops: [
+        { time: "6:00 PM", title: "The Neon Museum", type: "Experience", description: "Open with old Vegas glow and a specific sense of place before the meal.", yelpQuery: "The Neon Museum Las Vegas", cost: 28, vibes: ["Romantic", "Nostalgic"], age21: false },
+        { time: "7:45 PM", title: "Barry's Downtown Prime", type: "Dining", description: "Make dinner the only full meal: classic steakhouse energy without bouncing back to the Strip.", yelpQuery: "Barry's Downtown Prime Las Vegas", cost: 86, vibes: ["Classic", "Luxury"], age21: false },
+        { time: "9:45 PM", title: "Legacy Club", type: "Nightlife", description: "End with a skyline nightcap nearby so the plan lands with a view, not a second dinner.", yelpQuery: "Legacy Club Circa Las Vegas", cost: 26, vibes: ["Views", "Nightlife"], age21: true },
+      ],
+    },
+  ],
+  platonic: [
+    {
+      name: "Play Then Feast",
+      stops: [
+        { time: "6:00 PM", title: "AREA15", type: "Activity", description: "Start with a weird, high-energy shared playground so the hangout has an immediate hook.", yelpQuery: "AREA15 Las Vegas", cost: 25, vibes: ["Social", "Artsy"], age21: false },
+        { time: "7:45 PM", title: "Best Friend by Roy Choi", type: "Dining", description: "Use one loud, fun dinner anchor that works for groups and keeps the night from becoming a food crawl.", yelpQuery: "Best Friend Roy Choi Las Vegas", cost: 48, vibes: ["Social", "Fun"], age21: false },
+        { time: "9:30 PM", title: "Brooklyn Bowl", type: "Activity", description: "Close with something active and social so the group still has momentum after dinner.", yelpQuery: "Brooklyn Bowl Las Vegas", cost: 24, vibes: ["Active", "Social"], age21: false },
+      ],
+    },
+    {
+      name: "Chinatown Food Nerd",
+      stops: [
+        { time: "5:45 PM", title: "Chinatown Plaza", type: "Experience", description: "Open with a quick neighborhood wander so the route feels local instead of casino-default.", yelpQuery: "Chinatown Plaza Las Vegas", cost: 0, vibes: ["Local", "Low-key"], age21: false },
+        { time: "7:00 PM", title: "Shang Artisan Noodle", type: "Dining", description: "Anchor with a popular, affordable noodle spot that gives the group a specific food win.", yelpQuery: "Shang Artisan Noodle Las Vegas", cost: 22, vibes: ["Local", "Casual"], age21: false },
+        { time: "8:45 PM", title: "Sweets Raku", type: "Dessert", description: "Finish with dessert theater nearby, keeping the second food stop lighter and more memorable.", yelpQuery: "Sweets Raku Las Vegas", cost: 18, vibes: ["Dessert", "Niche"], age21: false },
+        { time: "10:00 PM", title: "Pinball Hall of Fame", type: "Activity", description: "Add a cheap, playful closer so the route has another shared activity after dessert.", yelpQuery: "Pinball Hall of Fame Las Vegas", cost: 12, vibes: ["Playful", "Low-key"], age21: false },
+      ],
+    },
+    {
+      name: "Desert Reset",
+      stops: [
+        { time: "4:45 PM", title: "Red Rock Canyon Scenic Loop", type: "Outdoors", description: "Start outside the neon with a scenic group reset before heading back toward dinner.", yelpQuery: "Red Rock Canyon Scenic Loop Las Vegas", cost: 20, vibes: ["Adventure", "Scenic"], age21: false },
+        { time: "7:15 PM", title: "Lotus of Siam", type: "Dining", description: "Make Lotus the single dinner anchor: credible, beloved, and worth planning around.", yelpQuery: "Lotus of Siam Las Vegas", cost: 42, vibes: ["Local", "Iconic"], age21: false },
+        { time: "9:00 PM", title: "Pinball Hall of Fame", type: "Activity", description: "Close with cheap, playful competition instead of another reservation.", yelpQuery: "Pinball Hall of Fame Las Vegas", cost: 12, vibes: ["Playful", "Low-key"], age21: false },
+      ],
+    },
+    {
+      name: "Downtown Culture Crawl",
+      stops: [
+        { time: "5:30 PM", title: "The Mob Museum", type: "Experience", description: "Open with a real Vegas story anchor that gives the group something to talk about.", yelpQuery: "The Mob Museum Las Vegas", cost: 35, vibes: ["Culture", "Fun"], age21: false },
+        { time: "7:30 PM", title: "Carson Kitchen", type: "Dining", description: "Use a downtown dinner anchor that is social, shareable, and not a generic casino pick.", yelpQuery: "Carson Kitchen Las Vegas", cost: 46, vibes: ["Social", "Local"], age21: false },
+        { time: "9:15 PM", title: "Fremont Street Experience", type: "Experience", description: "End with spectacle and people-watching nearby, keeping the night compact and easy.", yelpQuery: "Fremont Street Experience Las Vegas", cost: 0, vibes: ["Energetic", "Iconic"], age21: false },
+      ],
+    },
+  ],
+};
+
+function stopWasRecent(stop, recentVenues) {
+  const title = (stop.title || "").toLowerCase();
+  return Array.isArray(recentVenues) && recentVenues.some(name => title && String(name).toLowerCase().includes(title));
+}
+
+function templateCost(template) {
+  return template.stops.reduce((sum, stop) => sum + (Number(stop.cost) || 0), 0);
+}
+
+function buildLocalItinerary({ type, budget, vibes, age, specialRequest, recentVenues }) {
+  const isRomantic = type === "romantic";
+  const pool = LOCAL_ITINERARY_TEMPLATES[isRomantic ? "romantic" : "platonic"]
+    .filter(template => age >= 21 || !template.stops.some(stop => stop.age21));
+  const affordable = pool.filter(template => templateCost(template) <= Number(budget || 200) * 1.05);
+  const fresh = affordable.filter(template => !template.stops.some(stop => stopWasRecent(stop, recentVenues)));
+  const candidates = fresh.length ? fresh : affordable.length ? affordable : pool;
+  const selected = pickRandom(candidates.length ? candidates : pool);
+  const requestTail = specialRequest
+    ? ` Tuned for the request: ${String(specialRequest).slice(0, 90)}.`
+    : "";
+
+  return {
+    provider: "local",
+    items: selected.stops.map((stop, i) => ({
+      ...stop,
+      id: `local-${Date.now()}-${i}`,
+      description: `${stop.description}${requestTail}`,
+      vibes: vibes?.length ? [...new Set([...stop.vibes, ...vibes])].slice(0, 4) : stop.vibes,
+    })),
+  };
+}
+
 const HUDDLE_SYSTEM_PROMPT = `You are Romey, Master AI Architect and Lead Concierge for GoGlobal. You curate legendary Las Vegas experiences by coordinating a Huddle of specialist bots.
 
 Your Huddle:
 - BudgetBot: Tracks every dollar. Ensures total itinerary cost stays within 5% of the user's stated budget.
 - AestheticBot: Generates exactly 8 cinematic image search queries per response to visualize the experience.
-- QABot: Validates every recommendation for real-world feasibility. Requires 90-minute minimum spacing between venues.
+- QABot: Validates every recommendation for real-world feasibility, route logic, and variety. Requires 75-120 minute spacing between venues.
 - MemoryBot: Reads the user's saved favorites to personalize the plan. Avoids repeating saved places.
 
 STRICT RULES:
 1. Output ONLY valid JSON. Zero markdown. Zero text outside the JSON object.
-2. Itinerary must have exactly 4-5 items. Each with a realistic USD cost.
+2. Itinerary must have exactly 3-4 items. Each with a realistic USD cost.
 3. Total itinerary costs must not exceed 5% over the user's stated budget.
 4. atmospheric_images must have EXACTLY 8 cinematic, location-specific search queries.
 5. For "Other" or LGBTQ+ orientations: prioritize LGBTQ+-welcoming venues (Piranha Nightclub, The Garage Bar, Art Bar, Therapy Bar Las Vegas, Krave Massive, Hamburger Mary's).
 6. huddle_logs must include one entry per bot: BudgetBot, QABot, AestheticBot, MemoryBot.
 7. All venue times must be realistic for Las Vegas (venues open, 90-min minimum spacing).
+8. Never output more than one full restaurant/dinner stop. Dessert, coffee, cocktail, spa, show, movie, walk, museum, view, or adventure can be separate stops.
+9. Every itinerary must follow an arc: opener -> one dinner/meal anchor -> different-feeling closer. No same-category pileups.
+10. Prefer niche, local-loved, currently credible, or iconic venues from this guide:
+${ROMEY_VENUE_GUIDE}
 
 Output ONLY this exact JSON structure:
 {
@@ -188,18 +490,88 @@ Output ONLY this exact JSON structure:
   "learning_summary": "One sentence about what Romey learned from user favorites"
 }`;
 
+const ROMEY_CHAT_SYSTEM_PROMPT = `You are Romey, the GoGlobal concierge — a sophisticated, witty, and deeply knowledgeable guide to Las Vegas. Your personality shifts based on the user's selected vibe:
+
+VIBE: High Adventure → You're a thrill-seeking insider. Direct, energetic, vivid action language. You know every ATV trail, every bungee cord, every secret rooftop.
+VIBE: Intimate & Refined → You're a luxury concierge. Measured, evocative, understated. You speak of ambiance, exclusivity, hidden courtyards, and Michelin stars.
+VIBE: Default → Balanced warmth with dry wit. Professional but never stiff.
+
+RULES:
+- Never use generic filler. Every response must contain at least one specific venue, address, or insider tip.
+- Keep responses under 120 words unless the user asks for detail.
+- If asked about pricing, give real approximate ranges.
+- Reference the user's vibe naturally, never break character.
+- Recommend exact places from Romey's venue brain. Favor niche/local-loved or popular credible picks over generic filler.
+- Do not suggest three similar restaurants as a plan. Shape recommendations as an evening arc: opener, one strong meal, closer.
+- If the user asks for a date idea, think in combinations like High Roller -> dinner -> dessert, spa -> dinner -> movie, or museum -> dinner -> nightcap.
+- End responses with a subtle follow-up question to keep the conversation flowing.
+
+${ROMEY_VENUE_GUIDE}`;
+
+app.post("/api/romey-chat", async (req, res) => {
+  const { messages = [], vibe = "default" } = req.body || {};
+  const key = geminiApiKey();
+  if (!key) return res.status(500).json({ error: "Gemini API key not configured" });
+  if (!Array.isArray(messages) || messages.length === 0) {
+    return res.status(400).json({ error: "messages array required" });
+  }
+
+  const contents = messages
+    .slice(-12)
+    .map((m) => ({
+      role: m.role === "user" ? "user" : "model",
+      parts: [{ text: String(m.text || "").slice(0, 2000) }],
+    }))
+    .filter((m) => m.parts[0].text.trim());
+
+  if (contents.length === 0) return res.status(400).json({ error: "message text required" });
+
+  try {
+    const geminiRes = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents,
+          systemInstruction: { parts: [{ text: `${ROMEY_CHAT_SYSTEM_PROMPT}\n\nCurrent vibe: ${vibe}` }] },
+          generationConfig: { temperature: 0.7 },
+        }),
+      }
+    );
+
+    if (!geminiRes.ok) {
+      const err = await geminiRes.json().catch(() => ({}));
+      console.error("[Romey chat] Gemini error:", err?.error?.message ?? geminiRes.status);
+      return res.status(502).json({ error: "Romey chat failed" });
+    }
+
+    const data = await geminiRes.json();
+    const reply = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!reply) return res.status(502).json({ error: "empty response from Gemini" });
+    res.json({ reply });
+  } catch (err) {
+    console.error("[Romey chat]", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post("/api/generate", async (req, res) => {
   const { vibe, orientation, budget, favorites = [] } = req.body || {};
   if (!vibe || !budget) return res.status(400).json({ error: "vibe and budget are required" });
 
-  const key = process.env.VITE_GEMINI_API_KEY;
-  if (!key) return res.status(500).json({ error: "API key not configured" });
+  const key = geminiApiKey();
+  if (!key) return res.status(500).json({ error: "Gemini API key not configured" });
 
   const favSummary = favorites.length > 0
     ? favorites.map(f => f.name || f.title || f.artist || f.label).filter(Boolean).slice(0, 8).join(", ")
     : "None saved yet";
   const vibeLabel = vibe === "intimate" ? "Intimate & Refined" : vibe === "highAdventure" ? "High Adventure" : "Spontaneous Mix";
-  const userPrompt = `Plan a ${vibeLabel} Las Vegas evening. Orientation: ${orientation || "Any"}. Total budget: $${budget}. User favorites for personalization: ${favSummary}.`;
+  const planArc = pickRandom(HUDDLE_PLAN_ARCS);
+  const userPrompt = `Plan a ${vibeLabel} Las Vegas evening. Orientation: ${orientation || "Any"}. Total budget: $${budget}. User favorites for personalization: ${favSummary}.
+
+Required plan arc for this run: ${formatPlanArc(planArc)}
+Make it feel hand-curated, not like a generic list. Use one strong meal and surround it with different kinds of experiences.`;
 
   console.log(`[Generate] vibe=${vibe} orientation=${orientation} budget=$${budget}`);
   try {
@@ -211,7 +583,7 @@ app.post("/api/generate", async (req, res) => {
         body: JSON.stringify({
           contents: [{ parts: [{ text: userPrompt }] }],
           systemInstruction: { parts: [{ text: HUDDLE_SYSTEM_PROMPT }] },
-          generationConfig: { responseMimeType: "application/json", temperature: 0.85 },
+          generationConfig: { responseMimeType: "application/json", temperature: 0.95 },
         }),
       }
     );
@@ -234,7 +606,7 @@ app.post("/api/generate", async (req, res) => {
 
 // ─── Surprise Itinerary Generator — powered by Venice AI ─────────
 // POST /api/itinerary
-// Body: { type, budget, vibes[], age, sexuality, otherOrientation, specialRequest }
+// Body: { type, budget, vibes[], age, sexuality, otherOrientation, specialRequest, recentVenues[] }
 // Returns: { items: [{ id, time, title, type, description, yelpQuery, cost, vibes, age21 }] }
 app.post("/api/itinerary", async (req, res) => {
   const {
@@ -245,10 +617,10 @@ app.post("/api/itinerary", async (req, res) => {
     sexuality = "straight",
     otherOrientation = "",
     specialRequest = "",
+    recentVenues = [],
   } = req.body || {};
 
   const veniceKey = process.env.VENICE_API_KEY;
-  if (!veniceKey) return res.status(500).json({ error: "Venice API key not configured" });
 
   const isRomantic = type === "romantic";
 
@@ -268,27 +640,36 @@ app.post("/api/itinerary", async (req, res) => {
 
   const vibeNote = vibes.length > 0 ? `Requested mood/vibe: ${vibes.join(", ")}. Every stop should reflect this.` : "";
   const requestNote = specialRequest ? `SPECIAL REQUEST from the user — incorporate this specifically: "${specialRequest}"` : "";
+  const recentVenueNote = Array.isArray(recentVenues) && recentVenues.length
+    ? `Avoid these recently suggested venues unless the user explicitly asked for them: ${recentVenues.slice(0, 16).join(", ")}. Use fresh alternatives in the same quality tier.`
+    : "";
   const ageNote = !isRomantic && age < 21 ? "Group is UNDER 21 — absolutely NO bars, clubs, or alcohol venues." : "";
   const typeNote = isRomantic
     ? "This is a ROMANTIC date night for two. Think intimate, special, memorable."
     : `This is a PLATONIC hangout${age < 21 ? " for people under 21" : " for adults 21+"}. Fun, social, energetic.`;
+  const selectedArc = pickRandom(isRomantic ? ROMANTIC_PLAN_ARCS : PLATONIC_PLAN_ARCS);
 
   const prompt = `You are Romey, GoGlobal's Las Vegas AI concierge. Generate a fresh, specific Las Vegas itinerary tailored exactly to what this person wants.
 
 ${typeNote}
 Budget: $${budget} — ${budgetNote}
+Required itinerary arc for this run: ${formatPlanArc(selectedArc)}
 ${orientationNote}
 ${vibeNote}
 ${requestNote}
+${recentVenueNote}
 ${ageNote}
 
-Vegas venue pool (pick creatively, never repeat the same combo):
-RESTAURANTS: Joël Robuchon, Le Cirque, Nobu at Caesars, Secret Pizza at Cosmopolitan, Eggslut, In-N-Out Burger, Esther's Kitchen, Herbs & Rye, Lotus of Siam, Raku, Barry's Downtown Prime, Momofuku, Sparrow + Wolf, Yuzu Kaiseki
-EXPERIENCES: High Roller, Gondola at Venetian, Fly LINQ Zipline, TopGolf, Omega Mart at Area 15, Neon Museum, Pinball Hall of Fame, Mob Museum, Meow Wolf, Springs Preserve
-OUTDOORS: Red Rock Canyon, Calico Tanks Trail, Valley of Fire, Fire Wave Trail, Lake Mead, Historic Railroad Trail, Mt. Charleston, Gold Strike Hot Springs, Seven Magic Mountains
-SHOWS: Cirque du Soleil O, Absinthe at Caesars, Blue Man Group, Penn & Teller, Mat Franco
-NIGHTLIFE (21+ only): Omnia at Caesars, Marquee, Zouk, Herbs & Rye, The Golden Tiki, Velveteen Rabbit, Atomic Liquors
-UNIQUE: Ghost Tour of Fremont Street, Bacchanal Buffet, Shark Reef, Container Park, Fremont East bar crawl
+${ROMEY_VENUE_GUIDE}
+
+ORGANIZATION REQUIREMENTS:
+- Build an arc, not a list. Good examples: High Roller -> dinner -> dessert; spa -> dinner -> movie; Neon Museum -> dinner -> nightcap.
+- Exactly one full dinner/meal anchor. Never output 2+ restaurant stops. Dessert, coffee, cocktails, a movie, spa, view, museum, show, or walk are different categories and are allowed.
+- Include at least two non-food moments. A great date/hangout should have movement and contrast.
+- Keep geography coherent: same resort/corridor/neighborhood when possible; do not bounce Summerlin -> Strip -> Henderson unless the outdoor/adventure arc truly calls for it.
+- Randomize the combination, but keep it believable. Do not default to the same obvious trio every time.
+- For restaurants, prefer the venue brain's popular/current or niche/local-loved options over generic tourist filler.
+- Make every description explain why that stop fits this user, vibe, budget, and arc.
 
 Output ONLY valid JSON. No markdown. No text outside the JSON object:
 {
@@ -297,7 +678,7 @@ Output ONLY valid JSON. No markdown. No text outside the JSON object:
       "id": "gen-1",
       "time": "6:00 PM",
       "title": "Exact Venue Name",
-      "type": "Dining|Experience|Adventure|Nightlife|Show|Outdoors|Activity",
+      "type": "Dining|Dessert|Experience|Adventure|Nightlife|Show|Outdoors|Wellness|Movie|Activity",
       "description": "One vivid, specific sentence tailored to this user's request.",
       "yelpQuery": "Venue Name Las Vegas",
       "cost": 45,
@@ -308,44 +689,91 @@ Output ONLY valid JSON. No markdown. No text outside the JSON object:
 }
 
 Rules:
-- Exactly 4-5 items
-- Times 90+ min apart, realistic for Las Vegas
+- Exactly 3-4 items
+- Times 75+ min apart for major stops, realistic for Las Vegas
 - Total cost within $${budget}
 - age21: true only for bars/clubs/alcohol-focused venues
+- No more than one item may have type "Dining"
+- Dessert must use type "Dessert", not "Dining"
 - Make it personal — honor the special request above all else`;
 
   console.log(`[Itinerary] type=${type} budget=$${budget} sexuality=${sexuality} vibes=[${vibes}] request="${specialRequest.slice(0, 40)}"`);
 
   try {
-    const veniceRes = await fetch("https://api.venice.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${veniceKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "venice-uncensored",
-        messages: [{ role: "user", content: prompt }],
-      }),
-    });
+    let parsed = null;
+    let provider = "local";
 
-    if (!veniceRes.ok) {
-      const err = await veniceRes.json().catch(() => ({}));
-      console.error("[Itinerary] Venice error:", err?.error?.message ?? veniceRes.status);
-      return res.status(502).json({ error: "Venice generation failed" });
+    if (veniceKey) {
+      try {
+        parsed = await callVeniceItinerary(veniceKey, prompt);
+        provider = "Venice";
+      } catch (veniceErr) {
+        console.warn(`[Itinerary] Venice unavailable (${veniceErr.status || "error"}): ${veniceErr.message}`);
+      }
+    } else {
+      console.warn("[Itinerary] Venice key not configured — trying fallback providers");
     }
 
-    const data = await veniceRes.json();
-    const text = data?.choices?.[0]?.message?.content;
-    if (!text) return res.status(502).json({ error: "empty response from Venice" });
+    if (!parsed) {
+      const key = geminiApiKey();
+      if (key) {
+        try {
+          parsed = await callGeminiItinerary(key, prompt);
+          provider = "Gemini";
+        } catch (geminiErr) {
+          console.warn(`[Itinerary] Gemini fallback failed (${geminiErr.status || "error"}): ${geminiErr.message}`);
+        }
+      }
+    }
 
-    const match = text.match(/\{[\s\S]*\}/);
-    if (!match) return res.status(502).json({ error: "no JSON found in Venice response" });
+    if (!parsed) {
+      parsed = buildLocalItinerary({ type, budget, vibes, age, specialRequest, recentVenues });
+      provider = "local";
+    }
 
-    const parsed = JSON.parse(match[0]);
+    const shapeIssue = validateItineraryShape(parsed.items, isRomantic);
+    if (shapeIssue) {
+      console.warn(`[Itinerary] repairing shape: ${shapeIssue}`);
+      const repairPrompt = `${prompt}
+
+The previous response failed this quality check: ${shapeIssue}
+Repair it now. Preserve the same user preferences and required arc, but output a cleaner itinerary with exactly one full meal anchor and at least two non-food moments.
+
+Previous JSON:
+${JSON.stringify(parsed).slice(0, 4000)}`;
+
+      try {
+        const key = geminiApiKey();
+        if (provider === "Venice" && veniceKey) {
+          parsed = await callVeniceItinerary(veniceKey, repairPrompt);
+        } else if (key) {
+          parsed = await callGeminiItinerary(key, repairPrompt);
+          provider = "Gemini";
+        } else {
+          parsed = buildLocalItinerary({ type, budget, vibes, age, specialRequest, recentVenues });
+          provider = "local";
+        }
+      } catch (repairErr) {
+        console.warn(`[Itinerary] repair fallback failed: ${repairErr.message}`);
+        parsed = buildLocalItinerary({ type, budget, vibes, age, specialRequest, recentVenues });
+        provider = "local";
+      }
+    }
+
+    const finalIssue = validateItineraryShape(parsed.items, isRomantic);
+    if (finalIssue) {
+      console.warn(`[Itinerary] final fallback after quality issue: ${finalIssue}`);
+      parsed = buildLocalItinerary({ type, budget, vibes, age, specialRequest, recentVenues });
+      provider = "local";
+    }
+
+    const lastIssue = validateItineraryShape(parsed.items, isRomantic);
+    if (lastIssue) return res.status(502).json({ error: `Itinerary quality check failed: ${lastIssue}` });
+
     const stamp = Date.now();
     parsed.items = (parsed.items || []).map((it, i) => ({ ...it, id: `gen-${stamp}-${i}` }));
-    console.log(`[Itinerary] ✓ ${parsed.items.length} stops via Venice AI`);
+    parsed.provider = provider;
+    console.log(`[Itinerary] ✓ ${parsed.items.length} stops via ${provider} (${selectedArc.name})`);
     res.json(parsed);
   } catch (err) {
     console.error("[Itinerary] Error:", err.message);
@@ -361,12 +789,12 @@ const PLANS = {
   "local-pass": {
     name: "GoGlobal Local Pass",
     description: "Full access to one city — unlimited spins, reviews, and Midway Meetup.",
-    amount: 1500,   // $15.00 in cents
+    amount: 500,    // $5.00 in cents
   },
   "go-everywhere": {
     name: "GoGlobal GoEverywhere",
     description: "Every city, every feature, early access, and premium Romey concierge.",
-    amount: 2500,   // $25.00 in cents
+    amount: 1000,   // $10.00 in cents
   },
 };
 
@@ -384,6 +812,8 @@ app.post("/api/create-checkout-session", async (req, res) => {
   try {
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
+      metadata: { plan },
+      subscription_data: { metadata: { plan } },
       line_items: [
         {
           price_data: {
@@ -398,7 +828,7 @@ app.post("/api/create-checkout-session", async (req, res) => {
           quantity: 1,
         },
       ],
-      success_url: `${origin}/?checkout=success&plan=${plan}`,
+      success_url: `${origin}/?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url:  `${origin}/?checkout=cancelled`,
     });
 
@@ -409,13 +839,42 @@ app.post("/api/create-checkout-session", async (req, res) => {
   }
 });
 
+app.get("/api/checkout-session", async (req, res) => {
+  const stripeKey = process.env.STRIPE_SECRET_KEY;
+  if (!stripeKey) return res.status(500).json({ error: "Stripe not configured" });
+
+  const { session_id: sessionId } = req.query;
+  if (!sessionId) return res.status(400).json({ error: "session_id required" });
+
+  try {
+    const stripe = new Stripe(stripeKey);
+    const session = await stripe.checkout.sessions.retrieve(sessionId);
+    const plan = session.metadata?.plan;
+
+    if (!PLANS[plan]) return res.status(400).json({ error: "Unknown checkout plan" });
+    if (session.status !== "complete" || session.payment_status !== "paid") {
+      return res.status(402).json({ error: "Checkout session is not paid" });
+    }
+
+    res.json({
+      verified: true,
+      plan,
+      customer: session.customer,
+      subscription: session.subscription,
+    });
+  } catch (err) {
+    console.error("[Stripe verify]", err.message);
+    res.status(500).json({ error: "Could not verify checkout session" });
+  }
+});
+
 // ─── Yelp Restaurant Search (server-side proxy — key never sent to client) ───
 // GET /api/yelp-restaurants?lat=36.17&lon=-115.13&limit=8
 app.get("/api/yelp-restaurants", async (req, res) => {
   const { lat, lon, limit = 8 } = req.query;
   if (!lat || !lon) return res.status(400).json({ error: "lat and lon required" });
 
-  const yelpKey = process.env.VITE_YELP_API_KEY;
+  const yelpKey = yelpApiKey();
   if (!yelpKey) return res.status(500).json({ error: "Yelp API key not configured" });
 
   try {
@@ -458,7 +917,7 @@ app.get("/api/health", (req, res) => {
 });
 
 // ─── Daily Content Pipeline ───────────────────────────────────────
-const apiKey = process.env.VITE_GEMINI_API_KEY;
+const apiKey = geminiApiKey();
 
 // Run on startup if data is missing
 const eventsFile = join(DATA_DIR, "daily-events.json");
@@ -729,7 +1188,7 @@ app.get("/api/questions/history", (_, res) => {
   res.json(readJSON(RE_HISTORY_FILE, {}));
 });
 
-app.post("/api/questions/refresh", async (_, res) => {
+app.post("/api/questions/refresh", requireAdmin, async (_, res) => {
   try {
     res.json(await runWeeklyPull());
   } catch (e) {
@@ -738,7 +1197,7 @@ app.post("/api/questions/refresh", async (_, res) => {
   }
 });
 
-app.post("/api/questions/import", (req, res) => {
+app.post("/api/questions/import", requireAdmin, (req, res) => {
   const { questions, week: reqWeek } = req.body ?? {};
   if (!Array.isArray(questions) || questions.length === 0)
     return res.status(400).json({ error: "questions array required" });
@@ -755,7 +1214,7 @@ app.post("/api/questions/import", (req, res) => {
   res.json({ week, imported: questions.length });
 });
 
-app.post("/api/synthesize", async (req, res) => {
+app.post("/api/synthesize", requireAdmin, async (req, res) => {
   const { prompt: keyword, context } = req.body ?? {};
   if (!keyword) return res.status(400).json({ error: "prompt required" });
   try {
@@ -803,7 +1262,7 @@ app.get("/api/top3", (_, res) => {
   });
 });
 
-app.post("/api/auto-generate", async (_, res) => {
+app.post("/api/auto-generate", requireAdmin, async (_, res) => {
   try {
     res.json(await autoGenerateTop3());
   } catch (e) {

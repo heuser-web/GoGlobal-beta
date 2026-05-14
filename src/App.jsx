@@ -21,40 +21,20 @@ import MembershipPage from './pages/MembershipPage'
 import InfographicsPage from './pages/InfographicsPage'
 
 // ═══════════════════════════════════════════════════════════════════════════
-// GEMINI AI INTEGRATION — Romey Concierge
+// ROMEY CHAT — server-proxied Gemini concierge
 // ═══════════════════════════════════════════════════════════════════════════
-const GEMINI_CONFIG = {
-  // User must supply their own key in .env as VITE_GEMINI_API_KEY
-  model: "gemini-2.5-flash-preview-05-20",  // Highest available Nano-class model in alpha
-  systemPrompt: `You are Romey, the GoGlobal concierge — a sophisticated, witty, and deeply knowledgeable guide to Las Vegas. Your personality shifts based on the user's selected vibe:
-
-VIBE: High Adventure → You're a thrill-seeking insider. Direct, energetic, vivid action language. You know every ATV trail, every bungee cord, every secret rooftop.
-VIBE: Intimate & Refined → You're a luxury concierge. Measured, evocative, understated. You speak of ambiance, exclusivity, hidden courtyards, and Michelin stars.
-VIBE: Default → Balanced warmth with dry wit. Professional but never stiff.
-
-RULES:
-- Never use generic filler. Every response must contain at least one specific venue, address, or insider tip.
-- Keep responses under 120 words unless the user asks for detail.
-- If asked about pricing, give real approximate ranges.
-- Reference the user's vibe naturally, never break character.
-- You may recommend from this curated list: Joël Robuchon, Secret Pizza at Cosmopolitan, Herbs & Rye, Absinthe, Cirque du Soleil O, Gold Strike Hot Springs, Red Rock Canyon, Valley of Fire, Omega Mart, Neon Museum, Seven Magic Mountains, Fremont East District.
-- End responses with a subtle follow-up question to keep the conversation flowing.`
-};
-
-async function queryGemini(messages, vibe, apiKey) {
-  if (!apiKey) return null;
+async function queryGemini(messages, vibe) {
   try {
-    const { GoogleGenerativeAI } = await import("@google/generative-ai");
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({
-      model: GEMINI_CONFIG.model,
-      systemInstruction: GEMINI_CONFIG.systemPrompt + `\n\nCurrent vibe: ${vibe}`
+    const res = await fetch("/api/romey-chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages, vibe }),
     });
-    const chat = model.startChat({ history: messages.slice(0, -1).map(m => ({ role: m.role === "user" ? "user" : "model", parts: [{ text: m.text }] })) });
-    const result = await chat.sendMessage(messages[messages.length - 1].text);
-    return result.response.text();
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.reply || null;
   } catch (err) {
-    console.error("Gemini error:", err);
+    console.error("Romey chat error:", err);
     return null;
   }
 }
@@ -181,6 +161,185 @@ const googleLink = (q) => `https://www.google.com/search?q=${encodeURIComponent(
 async function shareContent(title, text) {
   if (navigator.share) { try { await navigator.share({ title, text, url: window.location.href }); return true; } catch { return false; } }
   return false;
+}
+
+function hasAdminAccessHint() {
+  try {
+    return import.meta.env.DEV || !!sessionStorage.getItem("gg_admin_token");
+  } catch {
+    return import.meta.env.DEV;
+  }
+}
+
+const RECENT_PLANS_KEY = "goglobal_recent_plans_v1";
+const RECENT_VENUES_KEY = "goglobal_recent_venues_v1";
+
+const VEGAS_ZONE_KEYWORDS = [
+  { zone: "The Strip", aliases: ["strip", "bellagio", "cosmopolitan", "aria", "caesars", "venetian", "palazzo", "wynn", "encore", "park mgm", "mandalay", "mgm grand", "high roller", "linq", "paris", "resorts world", "fontainebleau", "sphere", "treasure island", "mirage", "horseshoe", "flamingo"] },
+  { zone: "Downtown", aliases: ["downtown", "fremont", "circa", "golden nugget", "mob museum", "neon museum", "container park", "plaza hotel", "el cortez"] },
+  { zone: "Arts District", aliases: ["arts district", "main street", "able baker", "esther's", "esthers", "velveteen rabbit", "the good wolf", "brewery row", "18b"] },
+  { zone: "Chinatown", aliases: ["chinatown", "spring mountain", "lotus of siam", "kame", "ichiza", "shang", "sparrow + wolf", "mas por favor"] },
+  { zone: "Red Rock", aliases: ["red rock", "summerlin", "calico", "charleston", "canyon", "hike", "trail", "scenic loop"] },
+  { zone: "Off-Strip", aliases: ["palms", "virgin hotels", "rio", "ellis island", "durango", "green valley", "henderson", "unlv", "airport", "town square"] },
+];
+
+const PAGE_GUIDES = {
+  cities: { badge: "Vegas Zones", title: "Pick the part of Vegas first.", subtitle: "Strip, Downtown, Chinatown, Arts District, Red Rock, or Off-Strip. The zone choice makes every plan feel tighter." },
+  "zero-list": { badge: "Desert", title: "Trade casino noise for open air.", subtitle: "Hikes, scenic routes, and short-drive resets for when Vegas needs a second setting." },
+  gems: { badge: "Hidden Vegas", title: "Local-loved stops with actual texture.", subtitle: "Museums, oddball rooms, arts pockets, lounges, and places that feel less copy-pasted." },
+  parks: { badge: "Escapes", title: "National-park scale, Vegas base camp.", subtitle: "Use this when the trip needs a real day outside the city glow." },
+  events: { badge: "Tonight", title: "Residencies, shows, games, and one-off nights.", subtitle: "Start here when the main anchor is a ticket, then build dinner or dessert around it." },
+  romantic: { badge: "Date Night", title: "Opener, one dinner anchor, closer.", subtitle: "Romey builds dates like a route: view or spa first, dinner in the middle, dessert, movie, or afterglow last." },
+  platonic: { badge: "Group Chat", title: "One shared anchor, then movement.", subtitle: "For friend plans that need energy, logistics, and fewer random restaurants." },
+  midway: { badge: "Midway", title: "Find the best halfway restaurant.", subtitle: "Meet in the middle without turning planning into a map argument." },
+  favorites: { badge: "Saved", title: "Build from your strongest places.", subtitle: "Save a dinner anchor, a closer, and one wild card. Romey can shape better nights from those signals." },
+  membership: { badge: "Access", title: "Unlock more spins when the ideas start working.", subtitle: "Use more Romey planning once the free weekly route is not enough." },
+  infographics: { badge: "Admin", title: "Generate content with protection.", subtitle: "Internal tools for Vegas content refreshes and data-backed pages." },
+};
+
+function readJSONStorage(key, fallback) {
+  if (typeof window === "undefined") return fallback;
+  try {
+    const raw = window.localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeJSONStorage(key, value) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(key, JSON.stringify(value));
+  } catch {}
+}
+
+function itemDisplayName(item) {
+  return item?.title || item?.name || item?.artist || item?.venue || "Vegas stop";
+}
+
+function venueSearchText(item) {
+  return [
+    item?.title,
+    item?.name,
+    item?.artist,
+    item?.venue,
+    item?.type,
+    item?.category,
+    item?.description,
+    item?.yelpQuery,
+    item?.state,
+  ].filter(Boolean).join(" ").toLowerCase();
+}
+
+function inferVegasZone(item) {
+  const text = venueSearchText(item);
+  const match = VEGAS_ZONE_KEYWORDS.find(({ aliases }) => aliases.some(alias => text.includes(alias)));
+  if (match) return match.zone;
+  if (/park|desert|lake mead|valley of fire|hoover|mountain|canyon|trail|hike/.test(text)) return "Desert";
+  return "Vegas Core";
+}
+
+function parseCost(cost) {
+  if (typeof cost === "number") return Number.isFinite(cost) ? cost : 0;
+  if (typeof cost !== "string") return 0;
+  if (/free/i.test(cost)) return 0;
+  const matches = cost.match(/\d+(?:\.\d+)?/g);
+  if (!matches) return 0;
+  const nums = matches.map(Number).filter(Number.isFinite);
+  if (!nums.length) return 0;
+  return Math.round(nums.reduce((sum, n) => sum + n, 0) / nums.length);
+}
+
+function estimateItemsCost(items) {
+  return (items || []).reduce((sum, item) => sum + parseCost(item.cost), 0);
+}
+
+function routeCompactness(items) {
+  const zones = [...new Set((items || []).map(inferVegasZone).filter(Boolean))];
+  if (zones.length <= 1) return { label: "Walkable / same zone", detail: zones[0] || "Vegas Core" };
+  if (zones.length === 2 && !zones.includes("Desert") && !zones.includes("Red Rock")) {
+    return { label: "Short rideshares", detail: zones.join(" -> ") };
+  }
+  return { label: "Spread out", detail: zones.join(" -> ") };
+}
+
+function routeLabelFor(item, index, items) {
+  const type = (item?.type || "").toLowerCase();
+  if (type === "dining") return "Dinner anchor";
+  if (index === 0) return "Opener";
+  if (index === items.length - 1) return "Closer";
+  if (type === "dessert" || type === "coffee") return "Sweet stop";
+  if (type === "wellness") return "Reset";
+  if (type === "show" || type === "movie") return "Ticket anchor";
+  return "Middle beat";
+}
+
+function needsReservation(item) {
+  const text = venueSearchText(item);
+  return /(dining|restaurant|dinner|wellness|spa|show|movie|omakase|tasting|reservation|ticket|cocktail|lounge|nightlife)/.test(text);
+}
+
+function whyThisStop(item, index, items) {
+  const label = routeLabelFor(item, index, items);
+  const zone = inferVegasZone(item);
+  const compact = routeCompactness(items);
+  if (label === "Dinner anchor") {
+    return `This is the one full meal anchor, so the rest of the night can stay varied instead of turning into a restaurant crawl. ${zone} also keeps the route ${compact.label.toLowerCase()}.`;
+  }
+  if (label === "Opener") {
+    return `This gives the night a clear first scene before the main anchor. It sets the mood without spending the whole budget too early.`;
+  }
+  if (label === "Closer") {
+    return `This lands the plan with a clean final move instead of adding another heavy stop. It is there for afterglow, not filler.`;
+  }
+  if (label === "Sweet stop") {
+    return `This covers dessert without counting as another dinner, which makes the plan feel complete but still light.`;
+  }
+  return `This adds contrast between the opener and closer, so the itinerary feels planned rather than stacked at random.`;
+}
+
+function getRecentVenueTitles() {
+  return readJSONStorage(RECENT_VENUES_KEY, []);
+}
+
+function rememberRecentVenues(items) {
+  const names = (items || []).map(itemDisplayName).filter(Boolean);
+  const existing = getRecentVenueTitles();
+  const merged = [...names, ...existing].filter((name, idx, arr) => arr.findIndex(n => n.toLowerCase() === name.toLowerCase()) === idx);
+  writeJSONStorage(RECENT_VENUES_KEY, merged.slice(0, 24));
+}
+
+function getRecentPlans() {
+  return readJSONStorage(RECENT_PLANS_KEY, []);
+}
+
+function rememberRecentPlan({ type, budget, items, vibes }) {
+  if (!items?.length) return;
+  const plan = {
+    id: `plan-${Date.now()}`,
+    type,
+    budget,
+    vibe: (vibes || []).slice(0, 3).join(", ") || (type === "romantic" ? "Date night" : "Group hang"),
+    totalCost: estimateItemsCost(items),
+    compactness: routeCompactness(items).label,
+    zones: [...new Set(items.map(inferVegasZone))].slice(0, 3),
+    stops: items.slice(0, 4).map(item => ({ title: itemDisplayName(item), type: item.type || "Stop" })),
+    createdAt: new Date().toISOString(),
+  };
+  const signature = plan.stops.map(stop => stop.title.toLowerCase()).join("|");
+  const existing = getRecentPlans().filter(prev => prev.stops?.map(stop => stop.title.toLowerCase()).join("|") !== signature);
+  writeJSONStorage(RECENT_PLANS_KEY, [plan, ...existing].slice(0, 3));
+  if (typeof window !== "undefined") window.dispatchEvent(new Event("goglobal:recent-plans"));
+}
+
+function favoriteGroupFor(item) {
+  const text = venueSearchText(item);
+  if (item?.artist || item?.dates || /(show|concert|music|sports|event|ticket|residency)/.test(text)) return "Shows & Events";
+  if (/(dining|restaurant|dessert|coffee|cocktail|bar|lounge|food|omakase|brunch|wine)/.test(text)) return "Food & Drinks";
+  if (/(trail|hike|park|desert|canyon|mountain|lake|outdoors|red rock|valley of fire)/.test(text)) return "Outdoors";
+  if (/(spa|wellness|movie|museum|art|experience|activity|gem|culture)/.test(text)) return "Things To Do";
+  return "Vegas Spots";
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -324,6 +483,164 @@ function Badge({ children, color = "#FF2D55" }) {
   );
 }
 
+function ZoneChip({ item, zone }) {
+  return <Badge color="#C9A84C">{zone || inferVegasZone(item)}</Badge>;
+}
+
+function ReservationBadge() {
+  return <Badge color="#FF2D55">Reserve</Badge>;
+}
+
+function PageGuideBar({ page }) {
+  const { dark } = useTheme();
+  const guide = PAGE_GUIDES[page] || PAGE_GUIDES["zero-list"];
+  const marquee = ["The Strip", "Fremont", "Arts District", "Chinatown", "Red Rock", "Off-Strip"];
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.25 }}
+      style={{
+        borderBottom: `1px solid ${dark ? "rgba(255,255,255,0.045)" : "rgba(0,0,0,0.045)"}`,
+        background: dark
+          ? "radial-gradient(circle at 18% 0%, rgba(255,45,85,0.08), transparent 34%), radial-gradient(circle at 84% 12%, rgba(201,168,76,0.06), transparent 30%), rgba(0,0,0,0.34)"
+          : "radial-gradient(circle at 18% 0%, rgba(255,45,85,0.04), transparent 34%), rgba(255,255,255,0.58)",
+      }}
+    >
+      <div style={{
+        maxWidth: 1200, margin: "0 auto", padding: "12px 24px",
+        display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap",
+      }}>
+        <div style={{ minWidth: 220 }}>
+          <p style={{
+            margin: "0 0 3px", fontFamily: "var(--font-body)", fontSize: 10,
+            color: "#C9A84C", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.12em",
+          }}>{guide.badge}</p>
+          <p style={{
+            margin: 0, fontFamily: "var(--font-display)", fontSize: 17, fontWeight: 800,
+            color: dark ? "#F5F5F7" : "#1D1D1F", letterSpacing: "-0.01em",
+          }}>{guide.title}</p>
+        </div>
+        <p style={{
+          margin: 0, maxWidth: 560, fontFamily: "var(--font-body)", fontSize: 13, lineHeight: 1.5,
+          color: dark ? "rgba(255,255,255,0.45)" : "rgba(0,0,0,0.45)",
+        }}>{guide.subtitle}</p>
+      </div>
+      <div style={{
+        overflow: "hidden", borderTop: `1px solid ${dark ? "rgba(255,255,255,0.035)" : "rgba(0,0,0,0.035)"}`,
+      }}>
+        <div style={{
+          maxWidth: 1200, margin: "0 auto", padding: "6px 24px",
+          display: "flex", gap: 16, whiteSpace: "nowrap",
+          color: dark ? "rgba(255,255,255,0.2)" : "rgba(0,0,0,0.22)",
+          fontFamily: "var(--font-body)", fontSize: 10, fontWeight: 800,
+          textTransform: "uppercase", letterSpacing: "0.18em",
+        }}>
+          {[...marquee, ...marquee].map((label, idx) => (
+            <span key={`${label}-${idx}`}>{label}</span>
+          ))}
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
+function StickyPlanCTA({ onPlan }) {
+  const { dark } = useTheme();
+  return (
+    <motion.button
+      initial={{ opacity: 0, y: 18, x: "-50%" }}
+      animate={{ opacity: 1, y: 0, x: "-50%" }}
+      whileHover={{ y: -2 }}
+      whileTap={{ scale: 0.97 }}
+      onClick={onPlan}
+      style={{
+        position: "fixed", left: "50%", bottom: 18, zIndex: 140,
+        display: "inline-flex", alignItems: "center", gap: 9,
+        padding: "12px 18px", borderRadius: 100, cursor: "pointer",
+        border: `1px solid ${dark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.08)"}`,
+        background: dark ? "linear-gradient(135deg, rgba(255,45,85,0.96), rgba(201,168,76,0.9))" : "#FF2D55",
+        color: "#fff", boxShadow: "0 12px 44px rgba(255,45,85,0.34)",
+        fontFamily: "var(--font-body)", fontSize: 13, fontWeight: 800,
+        letterSpacing: "0.01em",
+      }}
+      aria-label="Plan Vegas Tonight"
+    >
+      <Sparkles size={15} /> Plan Vegas Tonight
+    </motion.button>
+  );
+}
+
+function RecentPlansPanel() {
+  const { dark } = useTheme();
+  const [plans, setPlans] = useState(() => getRecentPlans());
+
+  useEffect(() => {
+    const sync = () => setPlans(getRecentPlans());
+    window.addEventListener("storage", sync);
+    window.addEventListener("goglobal:recent-plans", sync);
+    return () => {
+      window.removeEventListener("storage", sync);
+      window.removeEventListener("goglobal:recent-plans", sync);
+    };
+  }, []);
+
+  if (!plans.length) {
+    return (
+      <Card noPad style={{ padding: 28 }}>
+        <Clock size={22} color="#C9A84C" />
+        <h3 style={{ fontFamily: "var(--font-display)", fontSize: 18, fontWeight: 800, color: dark ? "#F5F5F7" : "#1D1D1F", margin: "12px 0 6px" }}>
+          Recently planned
+        </h3>
+        <p style={{ fontFamily: "var(--font-body)", fontSize: 13, lineHeight: 1.6, color: dark ? "rgba(255,255,255,0.42)" : "rgba(0,0,0,0.42)", margin: 0 }}>
+          Your last three Romey routes will show up here after you generate them.
+        </p>
+      </Card>
+    );
+  }
+
+  return (
+    <div style={{ marginTop: 36 }}>
+      <SectionHeader badge="Last 3 Routes" badgeColor="#C9A84C" title="Recently Planned" subtitle="Romey remembers what it just suggested, so the next spin can avoid repeats." />
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 14 }}>
+        {plans.map((plan, idx) => (
+          <Card key={plan.id} delay={idx * 0.04} noPad style={{ padding: 22 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 12 }}>
+              <Badge color={plan.type === "romantic" ? "#FF2D55" : "#BF5AF2"}>{plan.type === "romantic" ? "Date Night" : "Group Chat"}</Badge>
+              <span style={{ fontFamily: "var(--font-body)", fontSize: 12, color: dark ? "rgba(255,255,255,0.38)" : "rgba(0,0,0,0.38)" }}>
+                ~${plan.totalCost || plan.budget}
+              </span>
+            </div>
+            <h3 style={{ fontFamily: "var(--font-display)", fontSize: 17, fontWeight: 800, color: dark ? "#F5F5F7" : "#1D1D1F", margin: "0 0 10px" }}>
+              {plan.vibe}
+            </h3>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
+              <Badge color="#C9A84C">{plan.compactness}</Badge>
+              {(plan.zones || []).map(zone => <ZoneChip key={zone} zone={zone} />)}
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {(plan.stops || []).map((stop, stopIdx) => (
+                <div key={`${stop.title}-${stopIdx}`} style={{ display: "flex", gap: 9, alignItems: "center" }}>
+                  <span style={{
+                    width: 22, height: 22, borderRadius: "50%", display: "inline-flex", alignItems: "center", justifyContent: "center",
+                    background: dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)",
+                    color: "#C9A84C", fontFamily: "var(--font-body)", fontSize: 11, fontWeight: 800, flexShrink: 0,
+                  }}>{stopIdx + 1}</span>
+                  <span style={{
+                    fontFamily: "var(--font-body)", fontSize: 13,
+                    color: dark ? "rgba(255,255,255,0.62)" : "rgba(0,0,0,0.58)",
+                    whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+                  }}>{stop.title}</span>
+                </div>
+              ))}
+            </div>
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // External link pill
 function LinkPill({ href, icon, label }) {
   return (
@@ -449,7 +766,7 @@ const PRICING_PLANS = [
   {
     id: "city",
     name: "City Pass",
-    price: "15",
+    price: "5",
     description: "Full access to one city of your choice.",
     color: "#C9A84C",
     features: ["Unlimited city access", "AI itinerary generator", "Hidden gems & trails", "Surprise itineraries", "Romey unlimited chat"],
@@ -459,7 +776,7 @@ const PRICING_PLANS = [
   {
     id: "allaccess",
     name: "All Access",
-    price: "25",
+    price: "10",
     description: "Every city. Every experience. Unlimited.",
     color: "#FF2D55",
     features: ["All 12 cities unlocked", "Everything in City Pass", "Early access to new cities", "Priority Romey responses", "Exclusive member events"],
@@ -801,20 +1118,27 @@ const COVER_TESTIMONIALS = [
     avatar: "https://randomuser.me/api/portraits/women/44.jpg",
     name: "Priya M.",
     handle: "@priya_travels",
-    text: "Romey planned our entire date night — Joël Robuchon to the High Roller. Flawless.",
+    text: "Romey gave us High Roller at sunset, Mizumi for dinner, then Dominique Ansel. Actual Vegas magic.",
   },
   {
     avatar: "https://randomuser.me/api/portraits/men/32.jpg",
     name: "Jake S.",
     handle: "@jakeinvegas",
-    text: "The squad roulette feature hit different. Gold Strike Hot Springs was a game changer.",
+    text: "No tourist soup. We got Arts District drinks, Esther's Kitchen, then a Fremont nightcap.",
   },
   {
     avatar: "https://randomuser.me/api/portraits/women/68.jpg",
     name: "Aaliyah R.",
     handle: "@aaliyah_roams",
-    text: "Hidden gems section took us straight to Omega Mart. GoGlobal knows Vegas better than locals.",
+    text: "It knew Chinatown, Red Rock, and the Strip without making the night feel scattered.",
   },
+];
+
+const VEGAS_DISTRICTS = ["The Strip", "Downtown", "Arts District", "Chinatown", "Red Rock", "Summerlin"];
+const VEGAS_HERO_MARKERS = [
+  { label: "Open with a view", value: "High Roller" },
+  { label: "Anchor dinner", value: "Mizumi / Esther's" },
+  { label: "Close the night", value: "Dessert or show" },
 ];
 
 function TestimonialCard({ t, className }) {
@@ -823,12 +1147,12 @@ function TestimonialCard({ t, className }) {
       className={className}
       style={{
         display: "flex", gap: 12, alignItems: "flex-start",
-        padding: "16px 18px", borderRadius: 20, width: 240, flexShrink: 0,
-        background: "rgba(10,10,10,0.6)",
+        padding: "16px 18px", borderRadius: 16, width: 252, flexShrink: 0,
+        background: "linear-gradient(145deg, rgba(10,10,12,0.78), rgba(35,8,22,0.58))",
         backdropFilter: "blur(24px) saturate(180%)",
         WebkitBackdropFilter: "blur(24px) saturate(180%)",
-        border: "1px solid rgba(255,255,255,0.08)",
-        boxShadow: "0 8px 32px rgba(0,0,0,0.4)",
+        border: "1px solid rgba(255,45,85,0.22)",
+        boxShadow: "0 0 28px rgba(255,45,85,0.12), 0 8px 32px rgba(0,0,0,0.45)",
       }}
     >
       <img src={t.avatar} alt={t.name} style={{ width: 40, height: 40, borderRadius: 12, objectFit: "cover", flexShrink: 0 }} />
@@ -841,7 +1165,7 @@ function TestimonialCard({ t, className }) {
   );
 }
 
-function CoverPage({ onEnter }) {
+function CoverPage({ onEnter, onNavigate }) {
   const { dark, toggle } = useTheme();
   const [search, setSearch] = useState("");
   const [region, setRegion] = useState("All");
@@ -855,9 +1179,22 @@ function CoverPage({ onEnter }) {
 
   const inputBg = dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)";
   const inputBorder = dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)";
+  const startHere = [
+    { label: "Date Night", note: "Opener, dinner, closer", page: "romantic", icon: <Heart size={15} /> },
+    { label: "Group Chat", note: "One anchor, more movement", page: "platonic", icon: <Laugh size={15} /> },
+    { label: "Hidden Vegas", note: "Local-loved oddities", page: "gems", icon: <Gem size={15} /> },
+    { label: "Tonight", note: "Shows and residencies", page: "events", icon: <Calendar size={15} /> },
+  ];
+  const goStart = (nextPage) => {
+    if (onNavigate) onNavigate(nextPage);
+    else onEnter();
+  };
 
   return (
-    <div style={{ minHeight: "100dvh", background: "#000" }}>
+    <div style={{
+      minHeight: "100dvh",
+      background: "radial-gradient(circle at 78% 12%, rgba(255,45,85,0.18), transparent 32%), radial-gradient(circle at 12% 82%, rgba(201,168,76,0.12), transparent 28%), #000"
+    }}>
 
       {/* ── SPLIT HERO ────────────────────────────────────────────── */}
       <div style={{ display: "flex", minHeight: "100dvh", flexDirection: "row" }}>
@@ -866,7 +1203,9 @@ function CoverPage({ onEnter }) {
         <section style={{
           flex: "0 0 46%", display: "flex", flexDirection: "column",
           justifyContent: "center", padding: "48px 56px",
-          background: dark ? "#000" : "#0a0a0a",
+          background: dark
+            ? "linear-gradient(135deg, rgba(20,0,16,0.98) 0%, #000 48%, rgba(9,4,0,0.98) 100%)"
+            : "#0a0a0a",
           position: "relative", zIndex: 2,
           minWidth: 0,
         }}>
@@ -874,7 +1213,7 @@ function CoverPage({ onEnter }) {
           <div style={{ position: "absolute", top: 28, left: 56, right: 32, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <div className="gg-animate-up gg-d1" style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <Globe size={20} color="#FF2D55" />
-              <span style={{ fontFamily: "var(--font-display)", fontWeight: 800, fontSize: 18, color: "#fff", letterSpacing: "-0.02em" }}>
+              <span style={{ fontFamily: "var(--font-display)", fontWeight: 800, fontSize: 18, color: "#fff", letterSpacing: "-0.02em", textShadow: "0 0 18px rgba(255,45,85,0.4)" }}>
                 Go<span style={{ color: "#FF2D55" }}>Global</span>
               </span>
             </div>
@@ -896,13 +1235,14 @@ function CoverPage({ onEnter }) {
           <div style={{ maxWidth: 420 }}>
             {/* Live badge */}
             <div className="gg-animate-up gg-d2" style={{
-              display: "inline-flex", alignItems: "center", gap: 7, padding: "5px 14px",
-              borderRadius: 100, background: "rgba(48,209,88,0.1)", border: "1px solid rgba(48,209,88,0.2)",
+              display: "inline-flex", alignItems: "center", gap: 8, padding: "6px 15px",
+              borderRadius: 100, background: "rgba(255,45,85,0.1)", border: "1px solid rgba(255,45,85,0.32)",
+              boxShadow: "0 0 24px rgba(255,45,85,0.12)",
               marginBottom: 28
             }}>
-              <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#30D158", boxShadow: "0 0 8px #30D158" }} />
-              <span style={{ fontFamily: "var(--font-body)", fontSize: 11, fontWeight: 700, color: "#30D158", letterSpacing: "0.1em", textTransform: "uppercase" }}>
-                Las Vegas is Live
+              <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#C9A84C", boxShadow: "0 0 10px #C9A84C" }} />
+              <span style={{ fontFamily: "var(--font-body)", fontSize: 11, fontWeight: 800, color: "#FF6B8A", letterSpacing: "0.14em", textTransform: "uppercase" }}>
+                Tonight in Las Vegas
               </span>
             </div>
 
@@ -912,13 +1252,13 @@ function CoverPage({ onEnter }) {
               fontSize: "clamp(38px, 4.5vw, 58px)", lineHeight: 1.05,
               color: "#fff", margin: "0 0 18px", letterSpacing: "-0.035em"
             }}>
-              Your next<br />
-              adventure<br />
+              Las Vegas,<br />
+              tonight.<br />
               <span style={{
                 background: "linear-gradient(135deg, #FF2D55 0%, #C9A84C 100%)",
                 WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent"
               }}>
-                starts here.
+                No filler.
               </span>
             </h1>
 
@@ -927,11 +1267,24 @@ function CoverPage({ onEnter }) {
               fontFamily: "var(--font-body)", fontSize: 15, lineHeight: 1.7,
               color: "rgba(255,255,255,0.45)", margin: "0 0 36px"
             }}>
-              Curated city experiences, hidden gems, surprise itineraries — all guided by Romey, your personal AI concierge.
+              A sharper Vegas concierge for date nights, group hangs, desert escapes, hidden restaurants, shows, spas, and the exact next move.
             </p>
 
+            <div className="gg-animate-up gg-d5" style={{ display: "flex", gap: 8, flexWrap: "wrap", margin: "0 0 24px" }}>
+              {VEGAS_DISTRICTS.map((district) => (
+                <span key={district} style={{
+                  padding: "6px 11px", borderRadius: 100,
+                  background: "rgba(255,255,255,0.045)",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  color: district === "The Strip" ? "#C9A84C" : "rgba(255,255,255,0.52)",
+                  fontFamily: "var(--font-body)", fontSize: 11, fontWeight: 700,
+                  letterSpacing: "0.03em",
+                }}>{district}</span>
+              ))}
+            </div>
+
             {/* Search input */}
-            <div className="gg-animate-up gg-d5" style={{
+            <div className="gg-animate-up gg-d6" style={{
               display: "flex", alignItems: "center", gap: 10,
               padding: "4px 4px 4px 18px", borderRadius: 16, marginBottom: 12,
               background: inputBg, border: `1px solid ${inputBorder}`,
@@ -1010,7 +1363,7 @@ function CoverPage({ onEnter }) {
               className="gg-animate-up gg-d6"
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.97 }}
-              onClick={onEnter}
+              onClick={() => goStart("romantic")}
               style={{
                 width: "100%", display: "flex", alignItems: "center", justifyContent: "center",
                 gap: 10, padding: "16px 28px", borderRadius: 16, marginBottom: 12,
@@ -1026,11 +1379,58 @@ function CoverPage({ onEnter }) {
                 background: "linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.1) 50%, transparent 100%)",
                 backgroundSize: "200% 100%", animation: "shimmer 2.5s linear infinite"
               }} />
-              Explore Las Vegas <ArrowRight size={16}/>
+              Plan Vegas Tonight <ArrowRight size={16}/>
             </motion.button>
 
+            <div className="gg-animate-up gg-d7" style={{ marginBottom: 16 }}>
+              <p style={{
+                fontFamily: "var(--font-body)", fontSize: 10, fontWeight: 800,
+                color: "rgba(255,255,255,0.34)", margin: "0 0 8px",
+                textTransform: "uppercase", letterSpacing: "0.12em",
+              }}>Start here</p>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 8 }}>
+                {startHere.map((tile) => (
+                  <motion.button
+                    key={tile.label}
+                    whileHover={{ y: -2 }}
+                    whileTap={{ scale: 0.97 }}
+                    onClick={() => goStart(tile.page)}
+                    style={{
+                      textAlign: "left", padding: "11px 12px", borderRadius: 14,
+                      background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
+                      color: "#fff", cursor: "pointer", minWidth: 0,
+                    }}
+                  >
+                    <span style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 5, color: tile.page === "events" ? "#C9A84C" : "#FF6B8A" }}>
+                      {tile.icon}
+                      <span style={{ fontFamily: "var(--font-display)", fontSize: 13, fontWeight: 800, color: "#F5F5F7" }}>{tile.label}</span>
+                    </span>
+                    <span style={{ display: "block", fontFamily: "var(--font-body)", fontSize: 11, lineHeight: 1.35, color: "rgba(255,255,255,0.42)" }}>
+                      {tile.note}
+                    </span>
+                  </motion.button>
+                ))}
+              </div>
+            </div>
+
+            <div className="gg-animate-up gg-d7" style={{
+              display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+              gap: 8, marginBottom: 14,
+            }}>
+              {VEGAS_HERO_MARKERS.map((marker) => (
+                <div key={marker.label} style={{
+                  padding: "10px 9px", borderRadius: 12,
+                  background: "rgba(255,255,255,0.035)",
+                  border: "1px solid rgba(255,255,255,0.065)",
+                }}>
+                  <p style={{ fontFamily: "var(--font-body)", fontSize: 9, color: "rgba(255,255,255,0.28)", margin: "0 0 3px", textTransform: "uppercase", letterSpacing: "0.08em" }}>{marker.label}</p>
+                  <p style={{ fontFamily: "var(--font-display)", fontSize: 12, fontWeight: 700, color: "#F5F5F7", margin: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{marker.value}</p>
+                </div>
+              ))}
+            </div>
+
             {/* Divider */}
-            <div className="gg-animate-up gg-d7" style={{ display: "flex", alignItems: "center", gap: 12, margin: "4px 0 12px" }}>
+            <div className="gg-animate-up gg-d8" style={{ display: "flex", alignItems: "center", gap: 12, margin: "4px 0 12px" }}>
               <div style={{ flex: 1, height: 1, background: "rgba(255,255,255,0.06)" }} />
               <span style={{ fontFamily: "var(--font-body)", fontSize: 12, color: "rgba(255,255,255,0.2)" }}>or</span>
               <div style={{ flex: 1, height: 1, background: "rgba(255,255,255,0.06)" }} />
@@ -1038,7 +1438,7 @@ function CoverPage({ onEnter }) {
 
             {/* Browse cities */}
             <button
-              className="gg-animate-up gg-d8"
+              className="gg-animate-up gg-d9"
               onClick={() => setShowCities(v => !v)}
               style={{
                 width: "100%", display: "flex", alignItems: "center", justifyContent: "center",
@@ -1055,8 +1455,8 @@ function CoverPage({ onEnter }) {
             </button>
 
             {/* Stats */}
-            <div className="gg-animate-up gg-d9" style={{ display: "flex", gap: 28, marginTop: 36, paddingTop: 28, borderTop: "1px solid rgba(255,255,255,0.06)" }}>
-              {[["12", "Cities"], ["100+", "Experiences"], ["AI", "Concierge"]].map(([val, lbl]) => (
+            <div className="gg-animate-up gg-d10" style={{ display: "flex", gap: 28, marginTop: 36, paddingTop: 28, borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+              {[["6", "Vegas zones"], ["1", "Perfect route"], ["AI", "Concierge"]].map(([val, lbl]) => (
                 <div key={lbl}>
                   <div style={{ fontFamily: "var(--font-display)", fontWeight: 800, fontSize: 20, color: "#FF2D55" }}>{val}</div>
                   <div style={{ fontFamily: "var(--font-body)", fontSize: 11, color: "rgba(255,255,255,0.3)", marginTop: 2, textTransform: "uppercase", letterSpacing: "0.06em" }}>{lbl}</div>
@@ -1084,8 +1484,28 @@ function CoverPage({ onEnter }) {
           {/* Left fade so left panel bleeds in */}
           <div style={{
             position: "absolute", inset: 0, zIndex: 1,
-            background: "linear-gradient(to right, #000 0%, transparent 18%), linear-gradient(to top, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0.1) 40%, transparent 70%)"
+            background: "linear-gradient(to right, #000 0%, transparent 18%), linear-gradient(to top, rgba(0,0,0,0.84) 0%, rgba(0,0,0,0.16) 42%, transparent 72%), radial-gradient(circle at 78% 18%, rgba(255,45,85,0.24), transparent 36%)"
           }} />
+
+          <div className="gg-animate-card gg-d5" style={{
+            position: "absolute", top: 34, right: 32, zIndex: 2,
+            width: 236, borderRadius: 18, padding: 14,
+            background: "linear-gradient(145deg, rgba(8,8,10,0.72), rgba(42,8,25,0.58))",
+            border: "1px solid rgba(255,45,85,0.32)",
+            boxShadow: "0 0 36px rgba(255,45,85,0.18), inset 0 0 22px rgba(255,45,85,0.04)",
+            backdropFilter: "blur(20px) saturate(170%)",
+          }}>
+            <div style={{
+              padding: "12px 12px 10px", borderRadius: 13,
+              border: "1px solid rgba(201,168,76,0.26)",
+              background: "rgba(0,0,0,0.25)",
+            }}>
+              <p style={{ fontFamily: "var(--font-body)", fontSize: 9, fontWeight: 800, color: "#C9A84C", margin: "0 0 6px", textTransform: "uppercase", letterSpacing: "0.16em" }}>Vegas route</p>
+              <p style={{ fontFamily: "var(--font-display)", fontSize: 24, lineHeight: 1, fontWeight: 800, color: "#fff", margin: 0, textShadow: "0 0 20px rgba(255,45,85,0.48)" }}>View</p>
+              <p style={{ fontFamily: "var(--font-display)", fontSize: 24, lineHeight: 1, fontWeight: 800, color: "#FF6B8A", margin: "3px 0 0", textShadow: "0 0 20px rgba(255,45,85,0.55)" }}>Dinner</p>
+              <p style={{ fontFamily: "var(--font-display)", fontSize: 24, lineHeight: 1, fontWeight: 800, color: "#C9A84C", margin: "3px 0 0", textShadow: "0 0 18px rgba(201,168,76,0.38)" }}>Afterglow</p>
+            </div>
+          </div>
 
           {/* Testimonial cards */}
           <div style={{
@@ -1168,18 +1588,19 @@ function CoverPage({ onEnter }) {
 function NavBar({ page, setPage, onHome }) {
   const { dark, toggle } = useTheme();
   const { favorites } = useFavorites();
+  const adminEnabled = hasAdminAccessHint();
   const items = [
-    { id: "cities",     label: "Cities",     icon: <Globe size={15}/>      },
-    { id: "zero-list",  label: "Trails",     icon: <Mountain size={15}/>   },
-    { id: "gems",       label: "Gems",       icon: <Gem size={15}/>        },
-    { id: "parks",      label: "Parks",      icon: <TreePine size={15}/>   },
-    { id: "events",     label: "Events",     icon: <Calendar size={15}/>   },
-    { id: "romantic",   label: "Romance",    icon: <Heart size={15}/>      },
-    { id: "platonic",   label: "Squad",      icon: <Laugh size={15}/>      },
-    { id: "midway",     label: "Meetup",     icon: <Navigation size={15}/> },
+    { id: "cities",     label: "Vegas Zones", icon: <Globe size={15}/>     },
+    { id: "zero-list",  label: "Desert",     icon: <Mountain size={15}/>   },
+    { id: "gems",       label: "Hidden Vegas", icon: <Gem size={15}/>      },
+    { id: "parks",      label: "Escapes",    icon: <TreePine size={15}/>   },
+    { id: "events",     label: "Tonight",    icon: <Calendar size={15}/>   },
+    { id: "romantic",   label: "Date Night", icon: <Heart size={15}/>      },
+    { id: "platonic",   label: "Group Chat", icon: <Laugh size={15}/>      },
+    { id: "midway",     label: "Midway",     icon: <Navigation size={15}/> },
     { id: "favorites",  label: `Saved${favorites.length ? ` (${favorites.length})` : ""}`, icon: <Bookmark size={15}/> },
     { id: "membership",   label: "Membership",   icon: <Crown size={15}/>      },
-    { id: "infographics", label: "Infographics", icon: <BarChart2 size={15}/>   },
+    ...(adminEnabled ? [{ id: "infographics", label: "Infographics", icon: <BarChart2 size={15}/> }] : []),
   ];
 
   return (
@@ -1498,7 +1919,11 @@ function GemsPage() {
               <div style={{ position: "absolute", top: 12, right: 12 }}><HeartBtn item={g}/></div>
             </div>
             <div style={{ padding: "18px 22px 22px" }}>
-              <Badge color={catCol[g.category]}>{g.category}</Badge>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                <Badge color={catCol[g.category]}>{g.category}</Badge>
+                <ZoneChip item={g} />
+                {needsReservation(g) && <ReservationBadge />}
+              </div>
               <h3 style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 18, color: dark ? "#F5F5F7" : "#1D1D1F", margin: "8px 0" }}>{g.name}</h3>
               <p style={{ fontFamily: "var(--font-body)", fontSize: 14, lineHeight: 1.55, color: dark ? "rgba(255,255,255,0.5)" : "rgba(0,0,0,0.5)", margin: "0 0 14px" }}>{g.description}</p>
               <div style={{ display: "flex", gap: 8 }}>
@@ -1919,7 +2344,7 @@ function EventsPage() {
 
   return (
     <div style={{ maxWidth: 1200, margin: "0 auto", padding: "48px 24px" }}>
-      <SectionHeader badge={`${deduped.length} Events`} badgeColor="#FF2D55" title="Enchanting Events" subtitle="Headliners, residencies, and spectacles — refreshed daily, de-duplicated for clarity." />
+      <SectionHeader badge={`${deduped.length} Events`} badgeColor="#FF2D55" title="Tonight in Vegas" subtitle="Headliners, residencies, and spectacles — refreshed daily, grouped by venue signal and ready to become the anchor." />
       <FilterBar options={["All", "Music", "Show", "Sports", "Art", "Tech", "Food"]} active={filter} onChange={setFilter} />
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: 20, marginTop: 32 }}>
         {filtered.map((e, i) => (
@@ -1934,7 +2359,11 @@ function EventsPage() {
               <div style={{ position: "absolute", top: 12, right: 12 }}><HeartBtn item={e}/></div>
             </div>
             <div style={{ padding: "18px 22px 22px" }}>
-              <Badge color={catCol[e.category]}>{e.category}</Badge>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                <Badge color={catCol[e.category]}>{e.category}</Badge>
+                <ZoneChip item={e} />
+                {needsReservation(e) && <ReservationBadge />}
+              </div>
               <h3 style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 18, color: dark ? "#F5F5F7" : "#1D1D1F", margin: "8px 0 4px" }}>{e.artist}</h3>
               <p style={{ fontFamily: "var(--font-body)", fontSize: 13, color: dark ? "rgba(255,255,255,0.35)" : "rgba(0,0,0,0.35)", margin: "0 0 8px", display: "flex", alignItems: "center", gap: 4 }}><MapPin size={12}/> {e.venue}</p>
               <p style={{ fontFamily: "var(--font-body)", fontSize: 14, color: dark ? "rgba(255,255,255,0.5)" : "rgba(0,0,0,0.5)" }}>{e.dates.length} date{e.dates.length > 1 ? "s" : ""} · From {e.price}</p>
@@ -1971,6 +2400,7 @@ function EventsPage() {
 // ═══════════════════════════════════════════════════════════════════════════
 function SurprisePage({ type }) {
   const { dark } = useTheme();
+  const { canUse, consume } = useMembership();
   const accent     = type === "romantic" ? "#FF2D55" : "#BF5AF2";
   const accentSoft = type === "romantic" ? "rgba(255,45,85,0.12)" : "rgba(191,90,242,0.12)";
   const title      = type === "romantic" ? "Romantic Surprise" : "Squad Surprise";
@@ -1997,8 +2427,18 @@ function SurprisePage({ type }) {
   const [spinError, setSpinError]   = useState(null);
   const [expandedId, setExpandedId] = useState(null);
 
-  const spin = async () => {
+  const spin = async (overrides = {}) => {
     if (spinning) return;
+    const allowance = canUse(type);
+    if (!allowance.allowed) {
+      const label = type === "romantic" ? "Romance" : "Squad";
+      setSpinError(`Explorer includes 1 ${label} spin per week. Upgrade to GoLocal for unlimited spins.`);
+      return;
+    }
+    const nextSpecialRequest = overrides.specialRequest ?? specialRequest.trim();
+    const nextVibes = overrides.vibes ?? selectedVibes;
+    const nextBudget = overrides.budget ?? effectiveBudget;
+    if (overrides.specialRequest !== undefined) setSpecialRequest(nextSpecialRequest);
     setSpinning(true);
     setSpinError(null);
     setExpandedId(null);
@@ -2009,12 +2449,13 @@ function SurprisePage({ type }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           type,
-          budget: effectiveBudget,
-          vibes: selectedVibes,
+          budget: nextBudget,
+          vibes: nextVibes,
           age,
           sexuality,
           otherOrientation: sexuality === "other" ? otherOrientationText : "",
-          specialRequest: specialRequest.trim(),
+          specialRequest: nextSpecialRequest,
+          recentVenues: getRecentVenueTitles(),
         }),
       });
       if (!res.ok) {
@@ -2024,6 +2465,9 @@ function SurprisePage({ type }) {
       const data = await res.json();
       if (!data.items || data.items.length === 0) throw new Error("Empty itinerary — try again");
       setAiItems(data.items);
+      rememberRecentVenues(data.items);
+      rememberRecentPlan({ type, budget: nextBudget, items: data.items, vibes: nextVibes });
+      consume(type);
     } catch (err) {
       console.error("[Plan]", err.message);
       setSpinError(`Romey hit a snag: ${err.message}`);
@@ -2083,8 +2527,21 @@ function SurprisePage({ type }) {
   });
 
   const items = aiItems ?? [];
-  const getMeta = it => ({ cost: it.cost, vibes: it.vibes, age21: it.age21 });
-  const totalCost = items.reduce((s, it) => s + (it.cost || 0), 0);
+  const getMeta = it => ({ cost: parseCost(it.cost), vibes: it.vibes, age21: it.age21 });
+  const totalCost = estimateItemsCost(items);
+  const compactness = routeCompactness(items);
+  const regenOptions = [
+    { label: "More luxury", request: "Regenerate with one more upscale or premium moment, while keeping the route practical." },
+    { label: "Less food", request: "Regenerate with exactly one full meal stop and more activities, views, shows, wellness, or dessert instead." },
+    { label: "More local", request: "Regenerate with more local-loved or niche Vegas places, not generic tourist filler." },
+    { label: type === "romantic" ? "More romantic" : "More social", request: type === "romantic" ? "Regenerate with a warmer, more intimate date-night feeling." : "Regenerate with more group energy and shared activities." },
+    { label: "Cheaper", request: "Regenerate at a lower total cost without making the plan feel cheap or random." },
+  ];
+  const regenerateWith = (request) => {
+    const current = specialRequest.trim();
+    const nextRequest = [current, request].filter(Boolean).join(" ");
+    spin({ specialRequest: nextRequest });
+  };
 
   return (
     <div style={{ maxWidth: 860, margin: "0 auto", padding: "48px 24px" }}>
@@ -2096,8 +2553,8 @@ function SurprisePage({ type }) {
           badgeColor={accent}
           title={title}
           subtitle={type === "romantic"
-            ? "Tell Romey what you want — Venice AI builds your perfect date night."
-            : "Tell Romey what you're after — Venice AI plans your squad hangout."}
+            ? "Tell Romey what you want — he builds your perfect date night."
+            : "Tell Romey what you're after — he plans your squad hangout."}
         />
       </div>
 
@@ -2236,7 +2693,7 @@ function SurprisePage({ type }) {
         <motion.button
           whileHover={{ scale: 1.02 }}
           whileTap={{ scale: 0.97 }}
-          onClick={spin}
+          onClick={() => spin()}
           disabled={spinning}
           style={{
             width: "100%", display: "flex", alignItems: "center", justifyContent: "center",
@@ -2260,7 +2717,7 @@ function SurprisePage({ type }) {
             <Sparkles size={17} />
           </motion.span>
           {spinning
-            ? "Venice AI is planning…"
+            ? "Romey is planning…"
             : aiItems
             ? `Plan a New ${type === "romantic" ? "Date" : "Hangout"}`
             : `Plan My ${type === "romantic" ? "Date Night" : "Hangout"}`}
@@ -2302,7 +2759,7 @@ function SurprisePage({ type }) {
               <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: "linear" }}>
                 <Loader2 size={16} color={accent} />
               </motion.div>
-              <span style={{ fontFamily: "var(--font-body)", fontSize: 13, color: tm }}>Venice AI is curating your perfect plan…</span>
+              <span style={{ fontFamily: "var(--font-body)", fontSize: 13, color: tm }}>Romey is curating your perfect plan…</span>
             </div>
           </motion.div>
         )}
@@ -2318,8 +2775,28 @@ function SurprisePage({ type }) {
               {type === "romantic" ? "Your perfect date awaits" : "Your perfect hangout awaits"}
             </p>
             <p style={{ fontFamily: "var(--font-body)", fontSize: 14, color: tm, margin: 0 }}>
-              Fill in your preferences above and hit Plan — Venice AI builds something just for you.
+              Fill in your preferences above and hit Plan — Romey builds something just for you.
             </p>
+            <div style={{
+              display: "flex", justifyContent: "center", gap: 8, flexWrap: "wrap",
+              marginTop: 18,
+            }}>
+              {(type === "romantic"
+                ? ["High-signal opener", "One dinner anchor", "Dessert / show / afterglow"]
+                : ["Shared hook", "One main anchor", "Closer with momentum"]
+              ).map((step, idx) => (
+                <span key={step} style={{
+                  display: "inline-flex", alignItems: "center", gap: 6,
+                  padding: "7px 11px", borderRadius: 100,
+                  background: idx === 1 ? accentSoft : (dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.035)"),
+                  border: `1px solid ${idx === 1 ? `${accent}35` : border}`,
+                  color: idx === 1 ? accent : tm,
+                  fontFamily: "var(--font-body)", fontSize: 12, fontWeight: 700,
+                }}>
+                  {idx + 1}. {step}
+                </span>
+              ))}
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -2377,12 +2854,78 @@ function SurprisePage({ type }) {
           </div>
 
           {/* ── Item rows ── */}
+          <div style={{
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+            gap: 18, padding: "16px 4px 18px", borderTop: `1px solid ${border}`,
+          }}>
+            <div>
+              <p style={{
+                fontFamily: "var(--font-body)", fontSize: 10, fontWeight: 800,
+                color: accent, textTransform: "uppercase", letterSpacing: "0.14em",
+                margin: "0 0 5px",
+              }}>Vegas Night Route</p>
+              <h3 style={{
+                fontFamily: "var(--font-display)", fontSize: 22, fontWeight: 800,
+                color: tp, margin: 0, letterSpacing: "-0.02em",
+              }}>
+                One strong anchor, no wasted stops.
+              </h3>
+              <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginTop: 11 }}>
+                {totalCost > 0 && <Badge color={accent}>~${totalCost} total</Badge>}
+                <Badge color="#C9A84C">{compactness.label}</Badge>
+                <span style={{
+                  padding: "3px 10px", borderRadius: 100,
+                  background: dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.035)",
+                  color: tm, fontFamily: "var(--font-body)", fontSize: 11, fontWeight: 600,
+                }}>{compactness.detail}</span>
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
+              {["Open", "Dinner", "Close"].map((step, idx) => (
+                <span key={step} style={{
+                  padding: "5px 10px", borderRadius: 100,
+                  background: idx === 1 ? accentSoft : (dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.035)"),
+                  border: `1px solid ${idx === 1 ? `${accent}36` : border}`,
+                  color: idx === 1 ? accent : tm,
+                  fontFamily: "var(--font-body)", fontSize: 11, fontWeight: 700,
+                }}>{step}</span>
+              ))}
+            </div>
+          </div>
+          <div style={{
+            display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap",
+            padding: "0 4px 18px",
+          }}>
+            <span style={{
+              fontFamily: "var(--font-body)", fontSize: 11, fontWeight: 800,
+              color: tm, textTransform: "uppercase", letterSpacing: "0.09em", marginRight: 2,
+            }}>Regenerate</span>
+            {regenOptions.map(option => (
+              <motion.button
+                key={option.label}
+                whileTap={{ scale: 0.96 }}
+                onClick={() => regenerateWith(option.request)}
+                disabled={spinning}
+                style={{
+                  padding: "7px 12px", borderRadius: 100, cursor: spinning ? "not-allowed" : "pointer",
+                  border: `1px solid ${border}`,
+                  background: dark ? "rgba(255,255,255,0.035)" : "rgba(0,0,0,0.03)",
+                  color: dark ? "rgba(255,255,255,0.62)" : "rgba(0,0,0,0.58)",
+                  fontFamily: "var(--font-body)", fontSize: 12, fontWeight: 700,
+                }}
+              >
+                <RefreshCw size={12} style={{ display: "inline", marginRight: 5, verticalAlign: -2 }} />
+                {option.label}
+              </motion.button>
+            ))}
+          </div>
           <div style={{ borderTop: `1px solid ${border}` }}>
             <AnimatePresence mode="popLayout">
               {items.map((it, i) => {
                 const m = getMeta(it);
                 const isExpanded = expandedId === it.id;
                 const isHovered  = hoveredId === it.id;
+                const routeLabel = routeLabelFor(it, i, items);
 
                 return (
                   <motion.div
@@ -2454,8 +2997,15 @@ function SurprisePage({ type }) {
                                 <ArrowUpRight size={15} color={tm} />
                               </motion.div>
                             </div>
-                            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                               <span style={{ fontFamily: "var(--font-body)", fontSize: 13, color: tm }}>{it.type}</span>
+                              <span style={{
+                                fontFamily: "var(--font-body)", fontSize: 10, fontWeight: 800,
+                                color: routeLabel === "Dinner anchor" ? accent : tm,
+                                textTransform: "uppercase", letterSpacing: "0.08em",
+                              }}>{routeLabel}</span>
+                              <ZoneChip item={it} />
+                              {needsReservation(it) && <ReservationBadge />}
                               {m.age21 && <Badge color="#BF5AF2">21+</Badge>}
                             </div>
                           </div>
@@ -2517,6 +3067,21 @@ function SurprisePage({ type }) {
                                 color: dark ? "rgba(255,255,255,0.65)" : "rgba(0,0,0,0.6)",
                                 margin: "0 0 18px"
                               }}>{it.description}</p>
+
+                              <div style={{
+                                padding: "13px 15px", borderRadius: 14, marginBottom: 18,
+                                background: dark ? "rgba(201,168,76,0.06)" : "rgba(201,168,76,0.08)",
+                                border: "1px solid rgba(201,168,76,0.18)",
+                              }}>
+                                <p style={{
+                                  margin: "0 0 4px", fontFamily: "var(--font-body)", fontSize: 10,
+                                  color: "#C9A84C", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.12em",
+                                }}>Why this stop?</p>
+                                <p style={{
+                                  margin: 0, fontFamily: "var(--font-body)", fontSize: 13, lineHeight: 1.55,
+                                  color: dark ? "rgba(255,255,255,0.58)" : "rgba(0,0,0,0.55)",
+                                }}>{whyThisStop(it, i, items)}</p>
+                              </div>
 
                               {/* Vibes */}
                               {m.vibes && (
@@ -3234,31 +3799,61 @@ function MidwayPage() {
 function FavoritesPage() {
   const { dark } = useTheme();
   const { favorites, addFav } = useFavorites();
+  const groupedFavorites = useMemo(() => {
+    return favorites.reduce((groups, item) => {
+      const group = favoriteGroupFor(item);
+      groups[group] = groups[group] || [];
+      groups[group].push(item);
+      return groups;
+    }, {});
+  }, [favorites]);
+  const groupOrder = ["Food & Drinks", "Things To Do", "Shows & Events", "Outdoors", "Vegas Spots"];
   return (
     <div style={{ maxWidth: 1200, margin: "0 auto", padding: "48px 24px" }}>
-      <SectionHeader badge="Your Collection" badgeColor="#C9A84C" title="Saved Favorites" subtitle={favorites.length ? `${favorites.length} saved item${favorites.length > 1 ? "s" : ""}` : "Tap the heart icon on any card to save it here."} />
+      <SectionHeader badge="Your Collection" badgeColor="#C9A84C" title="Saved Favorites" subtitle={favorites.length ? `${favorites.length} saved item${favorites.length > 1 ? "s" : ""}, grouped so you can build faster.` : "Save a dinner anchor, a closer, and one wild card. Romey can build from them."} />
       {favorites.length === 0 ? (
         <Card noPad style={{ padding: 64, textAlign: "center" }}>
           <Heart size={48} color={dark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)"} strokeWidth={1} />
-          <p style={{ fontFamily: "var(--font-body)", fontSize: 16, color: dark ? "rgba(255,255,255,0.3)" : "rgba(0,0,0,0.3)", marginTop: 16 }}>Your favorites will appear here.</p>
+          <p style={{ fontFamily: "var(--font-display)", fontSize: 18, fontWeight: 800, color: dark ? "#F5F5F7" : "#1D1D1F", margin: "16px 0 6px" }}>No saved Vegas signals yet.</p>
+          <p style={{ fontFamily: "var(--font-body)", fontSize: 14, lineHeight: 1.6, color: dark ? "rgba(255,255,255,0.36)" : "rgba(0,0,0,0.36)", margin: "0 auto", maxWidth: 420 }}>
+            Tap hearts on restaurants, events, hidden gems, and outdoor stops. A few strong saves make Romey less generic.
+          </p>
         </Card>
       ) : (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 16 }}>
-          {favorites.map((f, i) => (
-            <Card key={f.id} delay={i * 0.04} noPad style={{ padding: "20px 24px" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                <div>
-                  <h3 style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 17, color: dark ? "#F5F5F7" : "#1D1D1F", margin: "0 0 4px" }}>{f.name || f.title || f.artist}</h3>
-                  {f.description && <p style={{ fontFamily: "var(--font-body)", fontSize: 13, color: dark ? "rgba(255,255,255,0.4)" : "rgba(0,0,0,0.4)", margin: 0, lineHeight: 1.5 }}>{f.description}</p>}
-                </div>
-                <motion.button whileTap={{ scale: 0.85 }} onClick={() => addFav(f)} style={{ background: "#FF2D55", border: "none", borderRadius: "50%", width: 30, height: 30, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0, marginLeft: 12 }}>
-                  <X size={13} color="#fff"/>
-                </motion.button>
+        <div style={{ display: "flex", flexDirection: "column", gap: 32 }}>
+          {groupOrder.filter(group => groupedFavorites[group]?.length).map((group) => (
+            <section key={group}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 12 }}>
+                <h3 style={{
+                  fontFamily: "var(--font-display)", fontWeight: 800, fontSize: 20,
+                  color: dark ? "#F5F5F7" : "#1D1D1F", margin: 0,
+                }}>{group}</h3>
+                <Badge color="#C9A84C">{groupedFavorites[group].length}</Badge>
               </div>
-            </Card>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 16 }}>
+                {groupedFavorites[group].map((f, i) => (
+                  <Card key={f.id} delay={i * 0.04} noPad style={{ padding: "20px 24px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+                          <ZoneChip item={f} />
+                          {needsReservation(f) && <ReservationBadge />}
+                        </div>
+                        <h3 style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: 17, color: dark ? "#F5F5F7" : "#1D1D1F", margin: "0 0 4px" }}>{f.name || f.title || f.artist}</h3>
+                        {f.description && <p style={{ fontFamily: "var(--font-body)", fontSize: 13, color: dark ? "rgba(255,255,255,0.4)" : "rgba(0,0,0,0.4)", margin: 0, lineHeight: 1.5 }}>{f.description}</p>}
+                      </div>
+                      <motion.button whileTap={{ scale: 0.85 }} onClick={() => addFav(f)} style={{ background: "#FF2D55", border: "none", borderRadius: "50%", width: 30, height: 30, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 }}>
+                        <X size={13} color="#fff"/>
+                      </motion.button>
+                    </div>
+                  </Card>
+                ))}
+              </div>
+            </section>
           ))}
         </div>
       )}
+      <RecentPlansPanel />
     </div>
   );
 }
@@ -3282,7 +3877,6 @@ function RomeyChatbot() {
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
   const chatRef = useRef(null);
-  const apiKey = import.meta.env?.VITE_GEMINI_API_KEY;
 
   // Advance bot animation; transition to plan when all bots shown + plan ready
   useEffect(() => {
@@ -3321,7 +3915,7 @@ function RomeyChatbot() {
     setChatLoading(true);
     const newMsgs = [...msgs, { role: "user", text: userText }];
     setMsgs(newMsgs);
-    const reply = await queryGemini(newMsgs, vibe || "default", apiKey);
+    const reply = await queryGemini(newMsgs, vibe || "default");
     setMsgs(prev => [...prev, { role: "romey", text: reply || "Even I need a moment — rephrase that?" }]);
     setChatLoading(false);
   };
@@ -3510,7 +4104,13 @@ function RomeyChatbot() {
         {/* Itinerary */}
         {itinerary.length > 0 && (
           <div>
-            <p style={{ fontFamily: "var(--font-body)", fontSize: 11, fontWeight: 700, color: tm, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>Tonight's Plan</p>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 12 }}>
+              <div>
+                <p style={{ fontFamily: "var(--font-body)", fontSize: 10, fontWeight: 800, color: "#C9A84C", textTransform: "uppercase", letterSpacing: "0.12em", margin: "0 0 3px" }}>Vegas Night Route</p>
+                <p style={{ fontFamily: "var(--font-display)", fontSize: 16, fontWeight: 800, color: tp, margin: 0 }}>Open / Dinner / Close</p>
+              </div>
+              <span style={{ padding: "4px 9px", borderRadius: 100, border: "1px solid rgba(255,45,85,0.22)", background: "rgba(255,45,85,0.08)", color: "#FF6B8A", fontFamily: "var(--font-body)", fontSize: 10, fontWeight: 800 }}>No filler</span>
+            </div>
             {itinerary.map((item, i) => (
               <div key={i} style={{ display: "flex", gap: 12 }}>
                 <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: 22, flexShrink: 0 }}>
@@ -4019,8 +4619,9 @@ function CitiesPage({ onEnter }) {
 // MAIN APP
 // ═══════════════════════════════════════════════════════════════════════════
 export default function App() {
-  const [cover, setCover] = useState(true);
-  const [page, setPage] = useState("zero-list");
+  const checkoutReturn = new URLSearchParams(window.location.search).has("checkout");
+  const [cover, setCover] = useState(!checkoutReturn);
+  const [page, setPage] = useState(checkoutReturn ? "membership" : "zero-list");
 
   return (
     <ThemeProvider>
@@ -4035,6 +4636,12 @@ export default function App() {
 
 function AppInner({ cover, setCover, page, setPage }) {
   const { dark } = useTheme();
+  const adminEnabled = hasAdminAccessHint();
+  const goToPage = useCallback((nextPage) => {
+    setPage(nextPage);
+    setCover(false);
+    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [setCover, setPage]);
 
   const pages = {
     cities:     <CitiesPage onEnter={() => setCover(false)} />,
@@ -4047,24 +4654,26 @@ function AppInner({ cover, setCover, page, setPage }) {
     midway:      <MidwayPage/>,
     favorites:   <FavoritesPage/>,
     membership:    <MembershipPage/>,
-    infographics:  <InfographicsPage/>,
+    ...(adminEnabled ? { infographics: <InfographicsPage/> } : {}),
   };
 
-  if (cover) return <CoverPage onEnter={() => setCover(false)} />;
+  if (cover) return <CoverPage onEnter={() => goToPage("zero-list")} onNavigate={goToPage} />;
 
   return (
     <div style={{
       minHeight: "100dvh",
       background: dark
-        ? "radial-gradient(ellipse at 20% 0%, rgba(255,45,85,0.04) 0%, transparent 50%), radial-gradient(ellipse at 80% 100%, rgba(94,92,230,0.03) 0%, transparent 50%), #000"
+        ? "radial-gradient(ellipse at 18% 0%, rgba(255,45,85,0.10) 0%, transparent 44%), radial-gradient(ellipse at 86% 16%, rgba(201,168,76,0.06) 0%, transparent 34%), linear-gradient(180deg, #050004 0%, #000 38%, #050200 100%)"
         : "radial-gradient(ellipse at 20% 0%, rgba(255,45,85,0.03) 0%, transparent 50%), #FAFAFA"
     }}>
       <NavBar page={page} setPage={setPage} onHome={() => setCover(true)} />
+      <PageGuideBar page={page} />
       <AnimatePresence mode="wait">
         <motion.div key={page} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}>
           {pages[page] || <ZeroListPage/>}
         </motion.div>
       </AnimatePresence>
+      <StickyPlanCTA onPlan={() => goToPage("romantic")} />
       <RomeyChatbot />
       <footer style={{ padding: "48px 24px", borderTop: `1px solid ${dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.04)"}`, textAlign: "center", marginTop: 80 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 7, marginBottom: 8 }}>

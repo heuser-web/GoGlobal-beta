@@ -1,7 +1,14 @@
 {
   "permissions": {
     "allow": [
-      "Bash(npm run:*)"
+      "Bash(npm run:*)",
+      "Bash(npm install:*)",
+      "Bash(grep -E \"^[A-Z_]+=.+$\" \"/Users/romanheuser/Downloads/GoGlobal Beta 1.0/.env\")",
+      "Bash(cp \"/Users/romanheuser/GoRealestate/server/data/history.json\" \"/Users/romanheuser/Downloads/GoGlobal Beta 1.0/server/data/realestate/history.json\")",
+      "Bash(cp \"/Users/romanheuser/GoRealestate/server/data/articles.json\" \"/Users/romanheuser/Downloads/GoGlobal Beta 1.0/server/data/realestate/articles.json\")",
+      "Bash(node --input-type=module --eval \"import\\('./server/index.js'\\)\")",
+      "Bash(kill %1)",
+      "Bash(echo \"exit: $?\")"
     ]
   }
 }
