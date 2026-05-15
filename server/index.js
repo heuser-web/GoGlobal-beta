@@ -317,9 +317,15 @@ function isDessertStop(item) {
 }
 
 function isFullMealStop(item) {
-  const text = `${item?.type || ""} ${item?.title || ""} ${item?.description || ""}`.toLowerCase();
   if (isDessertStop(item)) return false;
-  return /dining|dinner|restaurant|steakhouse|supper|brunch|lunch|pizza|tacos|ramen|thai|sushi|tasting menu|meal/.test(text);
+  const type = String(item?.type || "").toLowerCase();
+  if (/dining|dinner|restaurant|meal|brunch|lunch/.test(type)) return true;
+  if (/experience|adventure|nightlife|show|outdoors|wellness|movie|activity|casino|sports|arcade|bar|lounge/.test(type)) {
+    return false;
+  }
+
+  const titleText = `${item?.title || ""} ${item?.yelpQuery || ""}`.toLowerCase();
+  return /restaurant|steakhouse|supper|brunch|lunch|pizza|tacos|ramen|thai|sushi|tasting menu/.test(titleText);
 }
 
 function normalizeVenueTitle(title = "") {
