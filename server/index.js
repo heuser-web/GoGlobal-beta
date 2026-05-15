@@ -654,7 +654,7 @@ function preferenceMatchedTemplates(candidates, preferenceText) {
   const matches = candidates.filter((template) => {
     const text = templateSearchText(template);
     if (wantsLake && /lake las vegas|aqua park|henderson/.test(text)) return true;
-    if (wantsSportsCasino && wantsArcade && /sportsbook|casino|pinball|arcade/.test(text)) return true;
+    if (wantsSportsCasino && wantsArcade && /sportsbook|casino|pinball|emporium arcade|player 1|play playground/.test(text)) return true;
     if (wantsSportsCasino && /sportsbook|casino|stadium swim|sports bar|wager/.test(text)) return true;
     if (wantsArcade && /arcade|pinball|game nest|play playground/.test(text)) return true;
     if (wantsMorningOutdoors && /breakfast|coffee|hike|trail|springs preserve|movie|theater/.test(text)) return true;
