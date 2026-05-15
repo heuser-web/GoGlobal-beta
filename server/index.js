@@ -651,6 +651,13 @@ function preferenceMatchedTemplates(candidates, preferenceText) {
   const wantsMorningOutdoors = /breakfast|coffee|hike|trail|movie|cinema|film/.test(pref);
   const wantsSpa = /spa|wellness|relax|massage/.test(pref);
 
+  if (wantsSportsCasino && wantsArcade) {
+    const combinedMatches = candidates.filter((template) =>
+      /sportsbook|casino|pinball|emporium arcade|player 1|play playground/.test(templateSearchText(template))
+    );
+    if (combinedMatches.length) return combinedMatches;
+  }
+
   const matches = candidates.filter((template) => {
     const text = templateSearchText(template);
     if (wantsLake && /lake las vegas|aqua park|henderson/.test(text)) return true;
