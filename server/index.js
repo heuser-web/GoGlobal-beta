@@ -641,6 +641,30 @@ function templatePreferenceScore(template, preferenceText) {
   }, 0);
 }
 
+function preferenceMatchedTemplates(candidates, preferenceText) {
+  const pref = String(preferenceText || "").toLowerCase();
+  if (!pref.trim()) return [];
+
+  const wantsLake = /lake|obstacle|aqua|water sport|paddle/.test(pref);
+  const wantsSportsCasino = /sports|sports bar|sportsbook|watch party|casino|gambl|blackjack|poker|slots/.test(pref);
+  const wantsArcade = /arcade|pinball|video game|games/.test(pref);
+  const wantsMorningOutdoors = /breakfast|coffee|hike|trail|movie|cinema|film/.test(pref);
+  const wantsSpa = /spa|wellness|relax|massage/.test(pref);
+
+  const matches = candidates.filter((template) => {
+    const text = templateSearchText(template);
+    if (wantsLake && /lake las vegas|aqua park|henderson/.test(text)) return true;
+    if (wantsSportsCasino && wantsArcade && /sportsbook|casino|pinball|arcade/.test(text)) return true;
+    if (wantsSportsCasino && /sportsbook|casino|stadium swim|sports bar|wager/.test(text)) return true;
+    if (wantsArcade && /arcade|pinball|game nest|play playground/.test(text)) return true;
+    if (wantsMorningOutdoors && /breakfast|coffee|hike|trail|springs preserve|movie|theater/.test(text)) return true;
+    if (wantsSpa && /spa|wellness|massage|baths/.test(text)) return true;
+    return false;
+  });
+
+  return matches;
+}
+
 function buildLocalItinerary({ type, budget, vibes, age, specialRequest, recentVenues }) {
   const isRomantic = type === "romantic";
   const pool = LOCAL_ITINERARY_TEMPLATES[isRomantic ? "romantic" : "platonic"]
@@ -649,7 +673,9 @@ function buildLocalItinerary({ type, budget, vibes, age, specialRequest, recentV
   const fresh = affordable.filter(template => !template.stops.some(stop => stopWasRecent(stop, recentVenues)));
   const candidates = fresh.length ? fresh : affordable.length ? affordable : pool;
   const preferenceText = [specialRequest, ...(vibes || [])].filter(Boolean).join(" ");
-  const scored = (candidates.length ? candidates : pool)
+  const preferenceMatches = preferenceMatchedTemplates(candidates, preferenceText);
+  const selectionPool = preferenceMatches.length ? preferenceMatches : (candidates.length ? candidates : pool);
+  const scored = selectionPool
     .map((template) => ({ template, score: templatePreferenceScore(template, preferenceText) }));
   const bestScore = Math.max(0, ...scored.map(({ score }) => score));
   const bestCandidates = bestScore > 0
