@@ -7,6 +7,7 @@ import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { config } from "dotenv";
 import { runDailyPipeline } from "./pipelines/daily.js";
+import { resolveCheckoutOrigin } from "./checkoutOrigin.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 config({ path: join(__dirname, "../.env") });
@@ -1063,7 +1064,7 @@ app.post("/api/create-checkout-session", async (req, res) => {
   if (!planConfig) return res.status(400).json({ error: `Unknown plan: ${plan}` });
 
   const stripe = new Stripe(stripeKey);
-  const origin = req.headers.origin || "http://localhost:3000";
+  const origin = resolveCheckoutOrigin(req);
 
   try {
     const session = await stripe.checkout.sessions.create({
@@ -1115,8 +1116,6 @@ app.get("/api/checkout-session", async (req, res) => {
     res.json({
       verified: true,
       plan,
-      customer: session.customer,
-      subscription: session.subscription,
     });
   } catch (err) {
     console.error("[Stripe verify]", err.message);
